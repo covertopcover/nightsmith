@@ -167,7 +167,7 @@ chmod +x "$tmp/$ASSET"
 # A valid signature is not enough: `codesign --verify` passes an ad-hoc or
 # linker-only signature, which anyone can make. Require ours — Developer ID,
 # this team — so a swapped binary with a valid-but-foreign signature is refused.
-TEAM_ID="7229PY5Q9U"
+TEAM_ID="G3J29WY48M"
 if command -v codesign >/dev/null 2>&1; then
     codesign --verify --strict "$tmp/$ASSET" 2>/dev/null \
         || die "This download isn't correctly signed, and macOS will refuse to

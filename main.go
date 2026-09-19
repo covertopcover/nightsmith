@@ -20,7 +20,8 @@ import (
 //
 // Nothing else. Every feature outside setup would add verbs here.
 
-const version = "0.0.0-dev"
+// Set at release time: go build -ldflags "-X main.version=v0.1.0".
+var version = "0.0.0-dev"
 
 func main() {
 	args := os.Args[1:]
