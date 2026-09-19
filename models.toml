@@ -1,0 +1,264 @@
+# nightsmith — the per-model capability table
+#
+# This file is the product. A per-model capability table is the
+# product… Nightsmith absorbs this so the user never learns it."
+#
+# It exists because three facts a user cannot look up decide whether a local
+# model works at all:
+#
+#   1. How big it really is. Names do not predict size — every repo below ends
+#      in -4bit or -8bit, and they span 2.7 GB to 111.5 GB.
+#   2. How to turn thinking off. There is no standard. The key name, and what
+#      happens when you omit it, differ per model, and a model that ignores the
+#      setting does so silently.
+#   3. Which server flags are broken for its architecture. mlx_lm.server accepts
+#      all of them and fails only when real work arrives.
+#
+# ── How to read a status field ───────────────────────────────────────────────
+#   measured  observed on real hardware; the machine and the number are named
+#   verified  read off a live source (the Hub, the model's own chat template)
+#   estimate  arithmetic from the weights-to-RAM rule, never run
+#
+# Nothing here may be promoted from estimate to measured without a run to cite.
+# Each model is pinned to a Hub commit (`revision`), so the weights cannot
+# change under a user between installs. Sizes are for that commit, and setup
+# checks a download against them before trusting it.
+#
+# Sizes were summed from the Hub file listing on 2026-09-17; re-derive with
+# `nightsmith model refresh` rather than trusting this snapshot.
+
+[meta]
+schema = 1
+sizes_verified_on = "2026-09-17"
+size_source = "Hugging Face Hub file listing, safetensors shards summed"
+units = "bytes, decimal GB in comments"
+
+# ── Defaults every entry inherits unless it overrides them ───────────────────
+[defaults]
+# Server settings — mlx_lm.server's own vocabulary, portable across models,
+# not across runtimes. Tier 1.
+prompt_cache_mb = 512        # measured: 512 -> 9.9 GB peak; no cap -> 12.3 GB
+prompt_cache_slots = 1
+# Standard request settings — the OpenAI API, genuinely portable. Tier 2.
+max_tokens = 1500
+temperature = 0              # measured: 60/60 identical answers at 0
+
+# Weights may not exceed this share of total RAM. The real limit is the GPU
+# wired limit at ~75% of RAM; this leaves room for the KV cache and macOS.
+weights_ram_fraction = 0.55
+
+# Flags that are never configurable, for any model. Each is a documented way to
+# break an install, and the server accepts all of them happily.
+never_configurable = ["kv_bits", "draft_model", "quantization", "context_length",
+                      "iogpu_wired_limit_mb"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  16 GB — the only rung with measurements behind it
+# ═══════════════════════════════════════════════════════════════════════════
+[[model]]
+repo = "mlx-community/gemma-4-12B-it-4bit"
+revision = "73bcf09092aa277861d5a191b989b666f7f32e8f"   # pinned; main on 2026-09-19
+architecture = "gemma4_unified"
+params_m = 11959.7
+weights_bytes = 6_741_039_511          # 6.74 GB, 2 shards
+tokenizer_bytes = 32_169_626
+min_ram_gb = 16
+default_for_ram_gb = 16
+status = "measured"
+
+  [model.measured]
+  machine = "base M4 / 16 GB"
+  source = "mlx_lm.server benchmark, 2026-09; peak re-measured by nightsmith itself"
+  # Re-measured 2026-09-19, macOS 27.0, mlx-lm 9d1e356, this repo's own setup:
+  # 30 requests shaped like the benchmark's (20 × ~2.2k tokens, 10 × ~300),
+  # thinking off, config F. Peak is the kernel's exact lifetime maximum
+  # (ri_lifetime_max_phys_footprint), in decimal GB: 10,224,310,224 bytes.
+  # The benchmark's earlier 9.9 was read off `top`, whose units are binary.
+  # Swap grew 218 MB during the run, with a browser and other apps open.
+  peak_memory_gb = 10.2
+  idle_memory_gb = 7.7
+  decode_tok_s = 12.6
+  prefill_tok_s_cold = 131
+  prefill_tok_s_warm = 1900
+  soak_minutes = 92
+  soak_requests = 210
+  swap = false
+
+  [model.thinking]
+  # Verified against this repo's own chat_template.jinja — 17,466 characters of
+  # custom Jinja, which does:
+  #   {%- if enable_thinking is defined and enable_thinking -%}
+  #       {{- '<|think|>\n' -}}
+  key = "enable_thinking"
+  transport = "chat_template_kwargs"
+  can_disable = true
+  omitting_means = "on"       # NOT the template's "off" — see below
+  send_explicitly = true
+  # The template alone says omitting means off. The runtime disagrees:
+  # mlx_lm's TokenizerWrapper.apply_chat_template (pinned commit 9d1e356)
+  # fills in enable_thinking = has_thinking whenever the caller omits it, so on
+  # mlx_lm.server an omitted setting means thinking ON. Measured 2026-09-19 on
+  # a base M4: omitted, "describe a harbour in 80 words" spent all 1,500 tokens
+  # reasoning and returned no answer; with an explicit false, 92 tokens and a
+  # clean answer. The server strips the reasoning into a separate `reasoning`
+  # field, so it never shows up as <think> markers in the answer text.
+  status = "verified"
+  note = """Thinking once looped 3,000 tokens without answering, which stalls a
+queue. It is also counted against max_tokens, so on a hard task it can consume
+the whole budget and return nothing."""
+
+  [model.broken_flags]
+  # Both observed failing on this machine. Neither is a bug we can fix.
+  kv_bits = "Sliding-window attention gives this model a rotating KV cache with no quantized implementation. All 30 requests failed."
+  draft_model = "The official draft model will not load. A substitute corrupted every answer, then hit a Metal OOM."
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  8 GB — supported, and the honest floor
+# ═══════════════════════════════════════════════════════════════════════════
+[[model]]
+repo = "mlx-community/MiniCPM5-2B-8bit"
+revision = "2d20e8e672ce892d50f7265bfd3fc9b59b718f2a"   # pinned; main on 2026-09-19
+architecture = "llama"
+params_m = 2516.8
+weights_bytes = 2_674_327_290          # 2.67 GB, 1 shard
+tokenizer_bytes = 9_894_271
+min_ram_gb = 8
+default_for_ram_gb = 8
+status = "estimate"
+note = """Picked for the 8 GB rung, where the GPU ceiling is ~6 GB and a browser
+wants 3 of it. Adequate for short simple tasks — which is the whole settled
+workload — and not for anything agent-shaped."""
+
+  [model.thinking]
+  # Verified against this repo's chat_template.jinja on 2026-09-17. It does NOT
+  # behave like Gemma 4, and this is exactly the trap this table exists for:
+  #
+  #   {%- if enable_thinking is defined %}
+  #       {%- if enable_thinking is false %}{{- '<think>\n\n</think>\n\n' }}
+  #       {%- elif enable_thinking is true %}{{- '<think>\n' }}
+  #
+  # Omitting the key emits NEITHER branch, leaving the model free to open its
+  # own <think> block. So "off" here is not the absence of the setting — it has
+  # to be sent as an explicit false.
+  key = "enable_thinking"
+  transport = "chat_template_kwargs"
+  can_disable = true
+  omitting_means = "model's choice"
+  send_explicitly = true      # ← the difference from Gemma 4
+  status = "verified"
+
+  [model.broken_flags]
+  # None known. A llama-architecture model has an ordinary KV cache, so kv_bits
+  # is not structurally broken here the way it is for Gemma 4 — but it stays in
+  # never_configurable until something measures it.
+
+  [model.capabilities]
+  tool_calling = "claimed"
+  # The repo is tagged `tool-calling` and its template defines an XML function
+  # protocol. Unmeasured. This is an open question, and it is
+  # load-bearing — nothing agent-shaped may be promised on a claim.
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Larger rungs — arithmetic, not measurement
+# ═══════════════════════════════════════════════════════════════════════════
+[[model]]
+repo = "mlx-community/Qwen3-14B-4bit"
+revision = "a4d9b2df59d2c150bef02fcbe0d91046b7ca33a4"   # pinned; main on 2026-09-19
+architecture = "qwen3"
+params_m = 14768.3
+weights_bytes = 8_307_898_514          # 8.31 GB, 2 shards
+min_ram_gb = 24
+default_for_ram_gb = 24
+status = "estimate"
+
+  [model.thinking]
+  key = "enable_thinking"
+  transport = "chat_template_kwargs"
+  can_disable = true
+  omitting_means = "unchecked"
+  send_explicitly = true      # safe default until the template is read
+  status = "estimate"
+  note = """Qwen3 uses the same key name as Gemma 4 by convention, not by
+standard. The semantics of omitting it have not been read off this repo's
+template, so send it explicitly and let the setup probe confirm it took."""
+
+[[model]]
+repo = "mlx-community/Qwen3.8-27B-4bit"
+revision = "10c35caafbb80f7dc6a7a432cdd11af10a6d4818"   # pinned; main on 2026-09-19
+architecture = "qwen3_5"
+params_m = 27356.7
+weights_bytes = 16_054_541_349         # 16.05 GB, 3 shards
+min_ram_gb = 32
+default_for_ram_gb = 32
+status = "estimate"
+
+  [model.thinking]
+  key = "enable_thinking"
+  transport = "chat_template_kwargs"
+  can_disable = true
+  omitting_means = "unchecked"
+  send_explicitly = true
+  status = "estimate"
+
+[[model]]
+repo = "mlx-community/Qwen3.6-35B-A3B-4bit"
+revision = "38740b847e4cb78f352aba30aa41c76e08e6eb46"   # pinned; main on 2026-09-19
+architecture = "qwen3_5_moe"
+params_m = 35107.2
+weights_bytes = 20_402_204_271         # 20.40 GB, 4 shards
+min_ram_gb = 48
+default_for_ram_gb = 48
+status = "estimate"
+note = "Mixture of experts — all weights must be resident even though few are active per token."
+
+  [model.thinking]
+  key = "enable_thinking"
+  transport = "chat_template_kwargs"
+  can_disable = true
+  omitting_means = "unchecked"
+  send_explicitly = true
+  status = "estimate"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Listed so it can be refused by name
+# ═══════════════════════════════════════════════════════════════════════════
+[[model]]
+repo = "mlx-community/Qwen3.8-Flash-Next-4bit"
+revision = "07b5dc6c54600a359b87f1e53e7adf6351c72a2c"   # pinned; main on 2026-09-19
+architecture = "qwen4_exp"
+params_m = 177392.8
+weights_bytes = 111_519_423_247        # 111.52 GB, 22 shards
+min_ram_gb = 256
+default_for_ram_gb = 0                 # never a default
+status = "estimate"
+note = """Here to be shown crossed out. Same -4bit suffix as the 2.7 GB entry
+above, 42x the size, and nothing in the name warns anyone. This row is the
+argument for always printing sizes."""
+
+  [model.thinking]
+  key = "enable_thinking"
+  transport = "chat_template_kwargs"
+  can_disable = true
+  omitting_means = "unchecked"
+  send_explicitly = true
+  status = "estimate"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Families not in the table yet, recorded so the shape is not forgotten
+# ═══════════════════════════════════════════════════════════════════════════
+# These are why `thinking = true` cannot mean one thing across models, and why
+# `nightsmith model use <arbitrary repo>` has to warn rather than assume.
+[[family_note]]
+family = "DeepSeek-R1 and its distills"
+thinking = "always on; cannot be disabled"
+consequence = "The `thinking` setting has no honest mapping. Refuse the setting rather than accept it and lie."
+
+[[family_note]]
+family = "gpt-oss"
+thinking = "reasoning effort levels, not a boolean"
+consequence = "`thinking = false` has no equivalent. Needs its own key shape before any gpt-oss model is listed."

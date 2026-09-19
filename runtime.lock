@@ -1,0 +1,46 @@
+# The model runtime, pinned. Installed by `uv pip install -r` into
+# ~/.nightsmith/runtime and nothing else — see runtime.go.
+#
+# mlx-lm comes from a git COMMIT, never PyPI: PyPI's 0.31.3 cannot load
+# Gemma 4, and fails silently (the server starts, answers /v1/models with 200,
+# then times out on the first real request). It is fetched as a GitHub archive
+# rather than git+https because the target Mac has no git — /usr/bin/git on a
+# Mac without developer tools pops the "install command line tools" dialog.
+#
+# Every other line is the exact set that was installed and run on a base
+# M4 / 16 GB under macOS 26.6 and 27.0 on 2026-09-19. Change one only with a
+# run to cite.
+annotated-doc==0.0.5
+anyio==4.15.1
+certifi==2026.7.22
+click==8.5.0
+filelock==4.0.1
+fsspec==2026.9.0
+h11==0.16.0
+hf-xet==1.6.0
+httpcore==1.0.9
+httpx==0.28.1
+huggingface-hub==1.32.0
+idna==3.20
+jinja2==3.1.6
+markdown-it-py==4.2.0
+markupsafe==3.0.3
+mdurl==0.1.2
+mlx==0.32.2
+mlx-lm @ https://github.com/ml-explore/mlx-lm/archive/9d1e356e7cc6549e7d1697adabe2ea01ff8e062c.tar.gz
+mlx-metal==0.32.2
+numpy==2.5.3
+packaging==26.3
+protobuf==7.36.2
+pygments==2.21.0
+pyyaml==6.0.3
+regex==2026.9.10
+rich==15.0.0
+safetensors==0.8.0
+sentencepiece==0.2.2
+shellingham==1.5.4
+tokenizers==0.23.2
+tqdm==4.70.1
+transformers==5.17.0
+typer==0.27.2
+typing-extensions==4.16.0
