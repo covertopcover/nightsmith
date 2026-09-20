@@ -1,0 +1,6 @@
+# GitHub Pages: nightsmith.sh serves README.md as its home page.
+# Jekyll picks up README.md when there is no index.html, so the site and the
+# repo's front page are the same file and cannot drift apart.
+theme: jekyll-theme-cayman
+title: nightsmith
+description: Local AI that runs in the background on your own Mac, set up with one terminal command.
