@@ -58,3 +58,22 @@ body {
 
 .site-footer { border-top-color: $border-color; }
 .site-footer-owner, .site-footer-credits { color: #8b98a8; }
+
+// Syntax highlighting. Cayman ships GitHub's light-background token colours,
+// and several are unreadable on a dark page — `-fsSL` in the install command
+// rendered navy on near-black. These are the tokens this site's code blocks
+// actually produce (shell flags, builtins, variables, operators), plus the
+// usual few in case the page grows.
+.highlight {
+  .nt { color: #ffa657; }              // flags: -fsSL
+  .nb, .nf { color: #79c0ff; }         // builtins, functions
+  .nv, .vg { color: #ffa657; }         // variables
+  .o, .ow, .p { color: #c3ccd8; }      // operators, punctuation: | and friends
+  .k, .kd, .kn, .kp, .kr, .kt { color: #ff7b72; }
+  .s, .s1, .s2, .sb, .se, .sh, .si, .sx { color: #a5d6ff; }
+  .c, .c1, .cm, .cp, .cs { color: #8b949e; font-style: italic; }
+  .m, .mi, .mf, .mh, .il { color: #79c0ff; }
+  .err { color: #ffa198; background-color: transparent; border: 0; }
+  .gd { color: #ffa198; }
+  .gi { color: #7ee787; }
+}
