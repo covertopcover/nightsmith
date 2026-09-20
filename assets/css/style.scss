@@ -1,0 +1,60 @@
+---
+---
+// Cayman, at night. The theme's own variables are !default, so setting them
+// before the import wins; the rest of the palette it does not expose (page
+// background, code blocks, tables) is overridden below.
+//
+// Night, and a forge: deep blue-black, with an ember accent.
+
+$header-bg-color:           #0b1020;   // gradient start — night
+$header-bg-color-secondary: #1b2a4a;   // gradient end   — before dawn
+$header-heading-color:      #f5f7fa;
+$section-headings-color:    #e0a458;   // ember
+$body-text-color:           #c3ccd8;
+$body-link-color:           #7fb2ff;
+$blockquote-text-color:     #8b98a8;
+$code-bg-color:             #11161f;
+$code-text-color:           #c3ccd8;
+$border-color:              #222c3a;
+$table-border-color:        #222c3a;
+$hr-border-color:           #222c3a;
+
+@import "{{ site.theme }}";
+
+body {
+  background-color: #0d1117;
+}
+
+.page-header {
+  // A forge glow under the night sky, rather than a flat two-colour sweep.
+  background-image: linear-gradient(120deg, $header-bg-color, $header-bg-color-secondary 70%, #7a4a1e);
+}
+
+.main-content {
+  color: $body-text-color;
+
+  h1, h2, h3, h4, h5, h6 { color: $section-headings-color; }
+
+  // The terminal sample is the point of the page: let it read as a terminal.
+  pre {
+    background-color: $code-bg-color;
+    border: 1px solid $border-color;
+    color: #d7dee8;
+  }
+  code { background-color: $code-bg-color; }
+
+  strong { color: #eef2f7; }
+
+  table tr { background-color: transparent; }
+  table tr:nth-child(2n) { background-color: #121823; }
+  table th { color: #eef2f7; }
+}
+
+.btn {
+  color: #f5f7fa;
+  border-color: rgba(255, 255, 255, 0.3);
+  &:hover { border-color: rgba(255, 255, 255, 0.7); }
+}
+
+.site-footer { border-top-color: $border-color; }
+.site-footer-owner, .site-footer-credits { color: #8b98a8; }
