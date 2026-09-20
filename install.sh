@@ -198,7 +198,18 @@ if [ "$need_path_edit" = "1" ]; then
     export PATH
 fi
 
-[ "$NO_RUN" = "1" ] && { echo; say "Run 'nightsmith' when you're ready."; exit 0; }
+if [ "$NO_RUN" = "1" ]; then
+    echo
+    if [ "$need_path_edit" = "1" ]; then
+        say "This terminal doesn't know the command yet. Run this once,"
+        say "or open a new terminal window:"
+        echo
+        say "    source $RC"
+        echo
+    fi
+    say "Then run 'nightsmith' when you're ready."
+    exit 0
+fi
 
 echo
 say "Starting setup…"
@@ -210,11 +221,55 @@ echo
 # But this script is usually running as `curl … | sh`, so stdin is the pipe,
 # not the keyboard — and setup asks a question. Hand it the terminal, or it
 # would read EOF and answer its own prompt.
-if [ -r /dev/tty ]; then
-    exec "$BIN" < /dev/tty
-else
+# Setup's last screen lists `nightsmith start` and friends. A PATH line added
+# just now reaches future shells only — no process can change its parent's
+# environment — so the shell the user returns to would answer "command not
+# found" one screen after being told it is ready.
+#
+# So: when the PATH had to be edited, hand the user a *new* login shell once
+# setup is done. It reads the edited profile, the command works in it, and
+# nobody has to be told to run anything. When there is no terminal to hand
+# over, setup prints its commands by full path instead, which need no PATH at
+# all. Either way the user never types a fix-up line.
+#
+# NIGHTSMITH_PATH_STATE tells the tool which of those two endings applies:
+#   fresh-shell  a login shell follows, so plain `nightsmith …` will work
+#   full-path    nothing follows; print ~/.local/bin/nightsmith …
+# Unset means the PATH already had the directory and neither applies.
+# `[ -r /dev/tty ]` is not enough: the file exists and looks readable even when
+# the process has no controlling terminal, and opening it then fails with
+# "Device not configured". Try the open itself.
+if ! { : < /dev/tty; } 2>/dev/null; then
     # No terminal to hand over (CI, a non-interactive shell). Don't start
     # something interactive that cannot be answered.
     say "No terminal attached, so setup wasn't started."
-    say "Run 'nightsmith' from a terminal when you're ready."
+    if [ "$need_path_edit" = "1" ]; then
+        # The short name will not work in a shell started before the PATH
+        # edit, so give the path that works anywhere.
+        say "Run '$(printf '%s' "$BIN" | sed "s|^$HOME|~|")' from a terminal when you're ready."
+    else
+        say "Run 'nightsmith' from a terminal when you're ready."
+    fi
+    exit 0
+fi
+
+if [ "$need_path_edit" = "1" ]; then
+    NIGHTSMITH_PATH_STATE=fresh-shell
+else
+    NIGHTSMITH_PATH_STATE=""
+fi
+export NIGHTSMITH_PATH_STATE
+
+if ! "$BIN" < /dev/tty; then
+    # Setup failed or was declined. Dropping someone into a nested shell after
+    # that would be one surprise on top of another.
+    exit 1
+fi
+
+if [ "$need_path_edit" = "1" ]; then
+    echo
+    say "Opened a fresh shell here, so the nightsmith command works."
+    say "(Type 'exit' to return to where you were.)"
+    echo
+    exec "$SHELL" -l < /dev/tty
 fi

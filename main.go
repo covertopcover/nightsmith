@@ -253,17 +253,37 @@ func runSetup(cat *Catalog, m Model, machine Machine) error {
 // ── Screen 3: the handoff ───────────────────────────────────────────────────
 
 func printReady(c Config) {
+	n := CommandName(os.Getenv("NIGHTSMITH_PATH_STATE"))
 	fmt.Printf(`
   Ready. It's running now.
 
-    nightsmith start     turn it on
-    nightsmith stop      turn it off
-    nightsmith status    is it running, and how much memory
-    nightsmith remove    take it back off this Mac
+    %[1]s start     turn it on
+    %[1]s stop      turn it off
+    %[1]s status    is it running, and how much memory
+    %[1]s remove    take it back off this Mac
 
-  While it's on, it's at  http://127.0.0.1:%d
+  While it's on, it's at  http://127.0.0.1:%[2]d
 
-`, c.Port)
+`, n, c.Port)
+}
+
+// CommandName is how the last screen spells the command, so that every line it
+// prints works when typed — without telling anyone to source anything.
+//
+// A PATH line the installer just added reaches future shells only. The
+// installer's answer is to hand over a fresh login shell, and it says so with
+// NIGHTSMITH_PATH_STATE:
+//
+//	fresh-shell  a login shell follows: plain `nightsmith` will work
+//	full-path    no shell follows (CI, no terminal): print the full path,
+//	             which needs no PATH at all
+//
+// Unset means PATH already had ~/.local/bin, and the short name is right.
+func CommandName(state string) string {
+	if state == "full-path" {
+		return shortPath(binPath()) // ~/.local/bin/nightsmith — tilde expands
+	}
+	return "nightsmith"
 }
 
 // ── The rest of the surface ─────────────────────────────────────────────────

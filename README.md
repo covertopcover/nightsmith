@@ -7,6 +7,11 @@ terminal command.
 curl -fsSL https://nightsmith.sh/install | sh
 ```
 
+It installs to `~/.local/bin`, adds that to your PATH if it isn't there, and
+goes straight into setup. When it has to change your PATH it hands you a fresh
+shell at the end, so `nightsmith` works immediately — there is nothing to
+source and no terminal to restart.
+
 Nightsmith looks at your Mac, picks a model that fits, installs the runtime,
 downloads the model, and **proves it works by asking it a real question**.
 Then it leaves you with one-word commands to start it, stop it, and remove it.
