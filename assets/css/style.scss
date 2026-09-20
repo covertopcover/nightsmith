@@ -35,6 +35,15 @@ body {
 
   h1, h2, h3, h4, h5, h6 { color: $section-headings-color; }
 
+  // Rouge's stylesheet paints .highlight white. Cayman rounds the corners of
+  // the <pre> around it, so on a dark page the white square underneath showed
+  // through as four bright corners.
+  .highlight { background-color: transparent; }
+
+  // An empty header row (Markdown needs one) drew a blank band above each
+  // table; the tables below name their columns instead.
+  table th { text-align: left; }
+
   // The terminal sample is the point of the page: let it read as a terminal.
   pre {
     background-color: $code-bg-color;

@@ -64,7 +64,7 @@ at a custom base URL can use it.
 
 ## Commands
 
-| | |
+| Command | What it does |
 |---|---|
 | `nightsmith` | Set up, or report that setup is already done |
 | `nightsmith start` / `stop` | Turn the model server on and off |
@@ -79,7 +79,7 @@ at a custom base URL can use it.
 Measured on a base M4 / 16 GB running Gemma 4 12B (4-bit) on `mlx_lm.server`,
 over 30 background-style requests (20 prompts of ~2,200 tokens, 10 of ~300):
 
-| | |
+| Measurement | Result |
 |---|---|
 | Writing speed | ~12 tokens/s (about 9 words a second), flat over a 92-minute soak |
 | Reading speed | ~131 tokens/s cold, ~1,900 warm (prompt cache hit) |
