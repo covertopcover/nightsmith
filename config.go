@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -43,15 +46,79 @@ func DefaultConfig(c *Catalog, m Model) Config {
 }
 
 func LoadConfig() (Config, error) {
-	var c Config
-	b, err := os.ReadFile(configPath())
+	c, _, err := readConfigFile(configPath())
+	return c, err
+}
+
+func readConfigFile(path string) (Config, []string, error) {
+	b, err := os.ReadFile(path)
 	if err != nil {
-		return c, err
+		return Config{}, nil, err
 	}
-	if err := toml.Unmarshal(b, &c); err != nil {
-		return c, fmt.Errorf("%s is not readable as TOML: %w", configPath(), err)
+	c, unknown, err := parseConfig(b)
+	if err != nil {
+		return c, nil, fmt.Errorf("%s is not readable as TOML: %w", path, err)
 	}
-	return c, nil
+	return c, unknown, nil
+}
+
+// parseConfig also returns the keys that are not settings. The file is edited
+// by hand, and a TOML decoder ignores what it does not know, so a misspelled
+// setting would otherwise do nothing and say nothing.
+func parseConfig(b []byte) (Config, []string, error) {
+	var c Config
+	md, err := toml.Decode(string(b), &c)
+	if err != nil {
+		return c, nil, err
+	}
+	var unknown []string
+	for _, k := range md.Undecoded() {
+		unknown = append(unknown, k.String())
+	}
+	sort.Strings(unknown)
+	return c, unknown, nil
+}
+
+// runningConfigPath holds the settings the running server was started with,
+// written by StartServer. A timestamp comparison would not do: `start`
+// rewrites config.toml itself when it has to move port.
+func runningConfigPath() string { return filepath.Join(stateDir(), "server.toml") }
+
+// changedSettings names each setting whose value differs, as
+// "prompt_cache_mb (512 → 1024)".
+func changedSettings(running, now Config) []string {
+	var out []string
+	a, b := reflect.ValueOf(running), reflect.ValueOf(now)
+	for i := 0; i < a.NumField(); i++ {
+		x, y := a.Field(i).Interface(), b.Field(i).Interface()
+		if x != y {
+			name := a.Type().Field(i).Tag.Get("toml")
+			out = append(out, fmt.Sprintf("%s (%v → %v)", name, x, y))
+		}
+	}
+	return out
+}
+
+// ConfigWarnings is what a user editing the file needs to be told: keys that
+// are not settings, and settings the running server has not picked up.
+func ConfigWarnings(running bool) []string {
+	var w []string
+	now, unknown, err := readConfigFile(configPath())
+	if err != nil {
+		return nil // the caller has already loaded it; this is advice only
+	}
+	for _, k := range unknown {
+		w = append(w, fmt.Sprintf("%s is not a setting — it is being ignored.", k))
+	}
+	if running {
+		if was, _, err := readConfigFile(runningConfigPath()); err == nil {
+			if ch := changedSettings(was, now); len(ch) > 0 {
+				w = append(w, "Changed since the server started: "+strings.Join(ch, ", ")+
+					".\n     'nightsmith stop' then 'nightsmith start' to apply.")
+			}
+		}
+	}
+	return w
 }
 
 func ConfigExists() bool {

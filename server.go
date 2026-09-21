@@ -42,6 +42,12 @@ func ServerArgs(c Config, m Model, modelPath string) []string {
 		// whose size parser now takes only digits with an M/MB/G/GB suffix.
 		"--prompt-cache-bytes", strconv.Itoa(c.PromptCacheMB * 1_000_000),
 		"--prompt-cache-size", strconv.Itoa(c.PromptCacheSlots),
+
+		// The defaults for a client that sends neither. Without them a
+		// client got mlx_lm's own (512 tokens) whatever the config said, and
+		// both settings changed only nightsmith's own probe.
+		"--max-tokens", strconv.Itoa(c.MaxTokens),
+		"--temp", strconv.FormatFloat(c.Temperature, 'f', -1, 64),
 	}
 
 	// The thinking setting as the server's default, so a client that sends
@@ -81,6 +87,36 @@ func serveScriptPath() string { return filepath.Join(stateDir(), "serve.py") }
 func ServerCommand(c Config, m Model, modelPath string) []string {
 	return append([]string{serveScriptPath(), "--served-model-id", m.Repo},
 		ServerArgs(c, m, modelPath)...)
+}
+
+// modelBin is the name the server runs under. macOS names a process after
+// its executable file, so without this Activity Monitor shows "python3.12" —
+// and argv[0] cannot change that. It is a hard link to the runtime's Python:
+// same inode, so the same code signature and no extra disk, and Python still
+// finds the venv through pyvenv.cfg one directory up.
+func modelBin() string { return filepath.Join(runtimeDir(), "bin", "nightsmith-model") }
+
+// ensureModelBin returns modelBin, (re)linking it if needed, or pythonBin if
+// the link cannot be made. A wrong process name is not worth failing a start.
+func ensureModelBin() string {
+	target, err := filepath.EvalSymlinks(pythonBin())
+	if err != nil {
+		return pythonBin()
+	}
+	ti, err := os.Stat(target)
+	if err != nil {
+		return pythonBin()
+	}
+	if li, err := os.Lstat(modelBin()); err == nil {
+		if os.SameFile(li, ti) {
+			return modelBin()
+		}
+		os.Remove(modelBin()) // left by an older runtime
+	}
+	if err := os.Link(target, modelBin()); err != nil {
+		return pythonBin()
+	}
+	return modelBin()
 }
 
 // pythonBin is the interpreter inside the vendored runtime. Never the system
@@ -173,7 +209,10 @@ func StartServer(c *Config, m Model) (int, error) {
 	if err := os.WriteFile(serveScriptPath(), serveScript, 0o644); err != nil {
 		return 0, err
 	}
-	cmd := exec.Command(pythonBin(), ServerCommand(*c, m, modelPath)...)
+	if err := os.WriteFile(runningConfigPath(), []byte(renderConfig(*c)), 0o644); err != nil {
+		return 0, err
+	}
+	cmd := exec.Command(ensureModelBin(), ServerCommand(*c, m, modelPath)...)
 	cmd.Env = append(uvEnv(), "HF_HOME="+c.ModelsDir, "HF_HUB_DISABLE_TELEMETRY=1")
 	if c.Offline {
 		// Stops a background task stalling on the network, and stops weights
@@ -263,6 +302,7 @@ func StopServer() (bool, error) {
 		return false, nil
 	}
 	defer os.Remove(pidPath())
+	defer os.Remove(runningConfigPath())
 	p, err := os.FindProcess(pid)
 	if err != nil {
 		return false, err

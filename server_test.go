@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -77,5 +79,57 @@ func TestIsOurServerKnowsBothLaunchForms(t *testing.T) {
 		if got := isOurServer(cmdline); got != want {
 			t.Errorf("isOurServer(%q) = %v, want %v", cmdline, got, want)
 		}
+	}
+}
+
+// Without these a client that omits them gets mlx_lm's defaults (512 tokens),
+// whatever the config file says.
+func TestAnswerDefaultsReachTheServer(t *testing.T) {
+	c, _ := LoadCatalog()
+	m, _ := c.Find("mlx-community/gemma-4-12B-it-4bit")
+	cfg := DefaultConfig(c, m)
+	cfg.MaxTokens, cfg.Temperature = 1234, 0.7
+	args := strings.Join(ServerArgs(cfg, m, "/snapshot"), " ")
+	for _, want := range []string{"--max-tokens 1234", "--temp 0.7"} {
+		if !strings.Contains(args, want) {
+			t.Errorf("missing %q in %s", want, args)
+		}
+	}
+}
+
+func TestModelBinIsAHardLinkToTheRuntimePython(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	// The venv layout: bin/python3 is a symlink to uv's Python elsewhere.
+	real := filepath.Join(home, "real-python")
+	mustWrite(t, real, 10)
+	os.MkdirAll(filepath.Dir(pythonBin()), 0o755)
+	if err := os.Symlink(real, pythonBin()); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := ensureModelBin(); got != modelBin() {
+		t.Fatalf("got %s, want the link", got)
+	}
+	a, _ := os.Lstat(modelBin())
+	b, _ := os.Stat(real)
+	if !os.SameFile(a, b) {
+		t.Error("nightsmith-model must be a hard link, not a copy or a symlink")
+	}
+
+	// A new runtime Python: the old link is replaced, not trusted.
+	os.Remove(real)
+	mustWrite(t, real, 20)
+	ensureModelBin()
+	a, _ = os.Lstat(modelBin())
+	b, _ = os.Stat(real)
+	if !os.SameFile(a, b) {
+		t.Error("a stale link must be relinked")
+	}
+
+	// No Python at all: fall back rather than fail the start.
+	os.Remove(real)
+	if got := ensureModelBin(); got != pythonBin() {
+		t.Errorf("got %s, want the pythonBin fallback", got)
 	}
 }

@@ -95,3 +95,15 @@ func TestRemovalIncludesTheServerWrapper(t *testing.T) {
 	}
 	t.Error("serve.py is not in the removal plan")
 }
+
+func TestRemovalIncludesTheRunningConfigSnapshot(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	mustWrite(t, runningConfigPath(), 100)
+	for _, it := range PlanRemoval().Items {
+		if it.Path == runningConfigPath() {
+			return
+		}
+	}
+	t.Error("server.toml is not in the removal plan")
+}

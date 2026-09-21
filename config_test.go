@@ -65,3 +65,49 @@ func TestDefaultsAreTheMeasuredConfiguration(t *testing.T) {
 		t.Error("offline must default on, or a background task can stall on the network")
 	}
 }
+
+// A misspelled setting is ignored by any TOML decoder. It must at least be
+// named, or editing the file silently does nothing.
+func TestUnknownKeysAreReported(t *testing.T) {
+	c, unknown, err := parseConfig([]byte("prompt_cache_mb = 1024\nprompt_cahce_mb = 9\nport = 8081\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.PromptCacheMB != 1024 || c.Port != 8081 {
+		t.Errorf("known keys must still decode: %+v", c)
+	}
+	if len(unknown) != 1 || unknown[0] != "prompt_cahce_mb" {
+		t.Errorf("unknown = %v, want [prompt_cahce_mb]", unknown)
+	}
+}
+
+func TestChangedSettingsNamesWhatMoved(t *testing.T) {
+	c, _ := LoadCatalog()
+	m, _ := c.Find("mlx-community/gemma-4-12B-it-4bit")
+	was := DefaultConfig(c, m)
+	if ch := changedSettings(was, was); len(ch) != 0 {
+		t.Errorf("identical configs reported as changed: %v", ch)
+	}
+	now := was
+	now.PromptCacheMB = 1024
+	now.Thinking = true
+	ch := changedSettings(was, now)
+	if len(ch) != 2 || ch[0] != "prompt_cache_mb (512 → 1024)" || ch[1] != "thinking (false → true)" {
+		t.Errorf("got %v", ch)
+	}
+}
+
+// The snapshot is written with renderConfig and read back with parseConfig;
+// if the two disagreed, a running server would always look out of date.
+func TestRenderedConfigRoundTrips(t *testing.T) {
+	c, _ := LoadCatalog()
+	m, _ := c.Find("mlx-community/gemma-4-12B-it-4bit")
+	want := DefaultConfig(c, m)
+	got, unknown, err := parseConfig([]byte(renderConfig(want)))
+	if err != nil || len(unknown) != 0 {
+		t.Fatalf("err=%v unknown=%v", err, unknown)
+	}
+	if ch := changedSettings(want, got); len(ch) != 0 {
+		t.Errorf("round trip changed %v", ch)
+	}
+}

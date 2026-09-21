@@ -88,29 +88,38 @@ func uvEnv() []string {
 	)
 }
 
-// ensureRuntime installs the runtime, or confirms it is already there.
+// ensureRuntime installs the runtime, or confirms it is already there. Its
+// three steps show separately: together they are ~11 s, which is long enough
+// on one silent line to look stuck.
 func ensureRuntime() error {
 	if runtimeReady() {
-		fmt.Printf("  ✓  Runtime ready                    already installed\n")
+		printf("%s", stepLine("Runtime ready", "already installed"))
 		return nil
 	}
-	start := time.Now()
-	fmt.Printf("     Installing the runtime (Python and MLX, ~450 MB)…\n")
-
 	if err := os.MkdirAll(stateDir(), 0o755); err != nil {
 		return err
 	}
+
+	start := time.Now()
+	done := step("Fetching uv, the Python installer")
 	if err := installUV(); err != nil {
 		return err
 	}
+	done("Fetched uv", since(start))
+
 	// --managed-python: never the system's Python, never Homebrew's. (Not also
 	// UV_PYTHON_PREFERENCE — uv rejects the two together.)
 	// --clear: a previous attempt may have left a partial venv behind.
+	start = time.Now()
+	done = step("Installing Python " + pythonVersion)
 	if out, err := runUV("venv", "--clear", "--quiet", "--managed-python",
 		"--python", pythonVersion, runtimeDir()); err != nil {
 		return runtimeFailed("couldn't install Python", out, err)
 	}
+	done("Installed Python "+pythonVersion, since(start))
 
+	start = time.Now()
+	done = step("Installing MLX (~350 MB)")
 	lock := filepath.Join(stateDir(), "runtime.lock")
 	if err := os.WriteFile(lock, runtimeLock, 0o644); err != nil {
 		return err
@@ -140,9 +149,11 @@ print(mlx_lm.__version__)`)
 	if err := os.WriteFile(runtimeStamp(), []byte(wantStamp()+"\n"), 0o644); err != nil {
 		return err
 	}
-	fmt.Printf("  ✓  Runtime ready                    %s\n", humanDuration(time.Since(start).Seconds()))
+	done("Installed MLX (mlx-lm "+mlxLMVersion+")", since(start))
 	return nil
 }
+
+func since(t time.Time) string { return humanDuration(time.Since(t).Seconds()) }
 
 func runtimeFailed(what, out string, err error) error {
 	return fmt.Errorf("%s: %v\n\n%s\n\n    Nothing outside ~/.nightsmith was touched. Running 'nightsmith'\n"+

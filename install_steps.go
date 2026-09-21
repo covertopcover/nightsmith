@@ -146,18 +146,18 @@ func ensureModel(m Model, c Config) (string, error) {
 	if p, shared, ok := LocateModel(m, c); ok {
 		removeOrphanPartials(c, m) // left by an older, interrupted attempt
 		if shared {
-			fmt.Printf("  ✓  Found %s already on your Mac. Nothing to download.\n", shortRepo(m.Repo))
+			printf("  ✓  Found %s already on your Mac. Nothing to download.\n", shortRepo(m.Repo))
 		} else {
-			fmt.Printf("  ✓  %s is already downloaded\n", shortRepo(m.Repo))
+			printf("  ✓  %s is already downloaded\n", shortRepo(m.Repo))
 		}
 		return p, nil
 	}
 
 	if have := partialBytes(c, m); have > 0 && m.TotalBytes() > 0 {
-		fmt.Printf("     Picking up where it stopped — %s of %s already here.\n",
+		printf("     Picking up where it stopped — %s of %s already here.\n",
 			humanBytes(have), humanBytes(m.TotalBytes()))
 	} else {
-		fmt.Printf("     Downloading %s (%s)…\n", shortRepo(m.Repo), humanBytes(m.TotalBytes()))
+		printf("     Downloading %s (%s)…\n", shortRepo(m.Repo), humanBytes(m.TotalBytes()))
 	}
 
 	start := time.Now()
@@ -202,12 +202,12 @@ wait:
 		case err = <-done:
 			break wait
 		case <-tick.C:
-			fmt.Printf("\r     %s  %s of %s ", progressBar(partialBytes(c, m), m.TotalBytes(), 24),
+			printf("\r     %s  %s of %s ", progressBar(partialBytes(c, m), m.TotalBytes(), 24),
 				humanBytes(partialBytes(c, m)), humanBytes(m.TotalBytes()))
 		}
 	}
 	tick.Stop()
-	fmt.Printf("\r%s\r", strings.Repeat(" ", 60))
+	printf("\r%s\r", strings.Repeat(" ", 60))
 	if err != nil {
 		return "", fmt.Errorf("the download stopped: %v\n%s\n\n"+
 			"    What arrived is kept. Run 'nightsmith' again and it picks up\n"+
@@ -221,7 +221,7 @@ wait:
 			"    size doesn't match what the model table records. Run 'nightsmith'\n"+
 			"    again to fetch what's missing.", shortRepo(m.Repo))
 	}
-	fmt.Printf("  ✓  Downloaded %s   %s   %s\n", shortRepo(m.Repo),
+	printf("  ✓  Downloaded %s   %s   %s\n", shortRepo(m.Repo),
 		humanBytes(m.TotalBytes()), humanDuration(time.Since(start).Seconds()))
 	return p, nil
 }

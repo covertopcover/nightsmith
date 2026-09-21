@@ -50,6 +50,7 @@ func PlanRemoval() Removal {
 		{pidPath(), ""},
 		{filepath.Join(stateDir(), "server.log"), ""},
 		{serveScriptPath(), ""},
+		{runningConfigPath(), ""},
 		{binPath(), "the command itself"},
 	} {
 		n, err := dirSize(c.path)

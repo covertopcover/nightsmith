@@ -26,7 +26,7 @@ var version = "0.0.0-dev"
 func main() {
 	args := os.Args[1:]
 	if err := run(args); err != nil {
-		fmt.Fprintf(os.Stderr, "\n  ✗ %s\n\n", err)
+		fmt.Fprint(os.Stderr, colorize(fmt.Sprintf("\n  ✗ %s\n\n", err), colorOn(os.Stderr)))
 		os.Exit(1)
 	}
 }
@@ -61,7 +61,7 @@ func run(args []string) error {
 		}
 		return errors.New("usage: nightsmith model list | nightsmith model use <repo>")
 	case "version", "--version", "-v":
-		fmt.Printf("nightsmith %s\n", version)
+		printf("nightsmith %s\n", version)
 		return nil
 	case "help", "--help", "-h":
 		printHelp()
@@ -82,8 +82,8 @@ func printHelp() {
     nightsmith status         is it running, and how much memory
     nightsmith remove         take it back off this Mac
 
-    nightsmith config check   what your settings will cost, against
-                              what this Mac can give them
+    nightsmith config check   what the settings in ~/.nightsmith/config.toml
+                              will cost, against what this Mac can give them
     nightsmith model list     what fits, what doesn't, with sizes
     nightsmith model use R    switch model, and prove the new one answers
 
@@ -113,16 +113,16 @@ func cmdSetup() error {
 		return cmdStatus()
 	}
 
-	fmt.Printf("\n  Nightsmith — AI that runs on your own Mac.\n\n  Looking at this Mac…\n\n")
-	fmt.Printf("  ✓  %s", machine.Chip)
+	printf("\n  Nightsmith — AI that runs on your own Mac.\n\n  Looking at this Mac…\n\n")
+	printf("  ✓  %s", machine.Chip)
 	if machine.GPUCores > 0 {
-		fmt.Printf(" · %d GPU cores", machine.GPUCores)
+		printf(" · %d GPU cores", machine.GPUCores)
 	}
-	fmt.Printf(" · ~%.0f GB/s memory\n", machine.BandwidthGB)
-	fmt.Printf("  ✓  macOS %s\n", machine.MacOS)
-	fmt.Printf("  ✓  %d GB memory — the GPU can use %.1f GB of it", machine.RAMGB, machine.CeilingGB)
+	printf(" · ~%.0f GB/s memory\n", machine.BandwidthGB)
+	printf("  ✓  macOS %s\n", machine.MacOS)
+	printf("  ✓  %d GB memory — the GPU can use %.1f GB of it", machine.RAMGB, machine.CeilingGB)
 	if !machine.CeilingIsMeasured {
-		fmt.Printf("   (estimated)")
+		printf("   (estimated)")
 	}
 	fmt.Println()
 	m, ok := cat.PickFor(machine.RAMGB)
@@ -142,7 +142,7 @@ func cmdSetup() error {
 			"    Free up %.1f GB and run 'nightsmith' again. Nothing was installed.",
 			humanBytes(need), machine.DiskFreeGB, short/bytesPerGB)
 	}
-	fmt.Printf("  ✓  %.0f GB free on disk — setup needs %s\n", machine.DiskFreeGB, humanBytes(need))
+	printf("  ✓  %.0f GB free on disk — setup needs %s\n", machine.DiskFreeGB, humanBytes(need))
 	est := EstimatePeak(m, cat.Defaults.PromptCacheMB, machine.RAMGB, machine.CeilingGB)
 	if !est.Fits {
 		return errors.New(RefuseReason(m, est, machine.RAMGB))
@@ -151,33 +151,33 @@ func cmdSetup() error {
 	if machine.RAMGB <= 8 {
 		// Say the quiet part. It is supported precisely because the workload is
 		// many small tasks; that would not hold for agent work.
-		fmt.Printf("\n  ⚠  16 GB is where this gets comfortable. You have %d.\n\n", machine.RAMGB)
-		fmt.Printf("     I'll set up a smaller model. For short, simple tasks it's\n")
-		fmt.Printf("     fine. It will compete with your browser for memory.\n")
+		printf("\n  ⚠  16 GB is where this gets comfortable. You have %d.\n\n", machine.RAMGB)
+		printf("     I'll set up a smaller model. For short, simple tasks it's\n")
+		printf("     fine. It will compete with your browser for memory.\n")
 	}
 
-	fmt.Printf("\n  Here's what fits, and what it'll be like:\n\n")
+	printf("\n  Here's what fits, and what it'll be like:\n\n")
 	if _, _, here := LocateModel(m, DefaultConfig(cat, m)); here {
-		fmt.Printf("     %s  ·  %s, already on this Mac\n\n",
+		printf("     %s  ·  %s, already on this Mac\n\n",
 			shortRepo(m.Repo), humanBytes(m.TotalBytes()))
 	} else {
-		fmt.Printf("     %s  ·  %s download\n\n",
+		printf("     %s  ·  %s download\n\n",
 			shortRepo(m.Repo), humanBytes(m.TotalBytes()))
 	}
-	fmt.Printf("     Uses %.1f GB while working, leaving %.1f GB spare.\n",
+	printf("     Uses %.1f GB while working, leaving %.1f GB spare.\n",
 		est.PeakGB, est.HeadroomGB)
 
 	speed := 12.6 * SpeedFactor(machine.BandwidthGB)
 	if m.IsMeasured() && machine.BandwidthGB == 120 {
-		fmt.Printf("     Writes %s — steady, not fast.\n", humanSpeed(m.Measured.DecodeTokS))
+		printf("     Writes %s — steady, not fast.\n", humanSpeed(m.Measured.DecodeTokS))
 	} else {
 		// Everything here is extrapolated from one measured machine, and says so.
-		fmt.Printf("     Should write %s — estimated from this Mac's\n", humanSpeed(speed))
-		fmt.Printf("     memory bandwidth, then measured for real below.\n")
+		printf("     Should write %s — estimated from this Mac's\n", humanSpeed(speed))
+		printf("     memory bandwidth, then measured for real below.\n")
 	}
 
-	fmt.Printf("\n  Nothing here needs your password, and nothing touches the\n")
-	fmt.Printf("  Python or Homebrew already on this Mac.\n\n")
+	printf("\n  Nothing here needs your password, and nothing touches the\n")
+	printf("  Python or Homebrew already on this Mac.\n\n")
 
 	if !confirm("  Set it up?", true) {
 		fmt.Println("\n  Nothing was installed.")
@@ -217,7 +217,7 @@ func runSetup(cat *Catalog, m Model, machine Machine) error {
 			StopServer()
 		}
 	}()
-	fmt.Printf("  ✓  Started the model                %s\n", humanDuration(time.Since(started).Seconds()))
+	printf("%s", stepLine("Started the model", since(started)))
 
 	// The most important line in the product. A checkmark may only appear
 	// after a real completion came back — /v1/models returned 200 while the
@@ -228,9 +228,9 @@ func runSetup(cat *Catalog, m Model, machine Machine) error {
 	if err != nil {
 		return fmt.Errorf("the model started but couldn't answer: %w\n\n%s", err, indentTail(readLog(), 8))
 	}
-	fmt.Printf("  ✓  Asked it something — it answered:\n        %q\n", res.Answer)
+	printf("  ✓  Asked it something — it answered:\n        %q\n", res.Answer)
 	if res.ThinkingKnown && res.ThinkingOff {
-		fmt.Printf("  ✓  Thinking stayed off\n")
+		printf("  ✓  Thinking stayed off\n")
 	}
 	// Speed is measured on a second, longer answer. The first one's time is
 	// mostly loading the model, and "Hello!" is two tokens: dividing one by
@@ -240,7 +240,7 @@ func runSetup(cat *Catalog, m Model, machine Machine) error {
 		return fmt.Errorf("the model answered once, then couldn't answer again: %w", err)
 	}
 	peak = mem.Stop()
-	fmt.Printf("  ✓  Measured it here:  %s · %s\n", humanSpeed(speed.TokPerSec), peak)
+	printf("  ✓  Measured it here:  %s · %s\n", humanSpeed(speed.TokPerSec), peak)
 
 	if err := WriteConfig(cfg); err != nil {
 		return err
@@ -254,7 +254,7 @@ func runSetup(cat *Catalog, m Model, machine Machine) error {
 
 func printReady(c Config) {
 	n := CommandName(os.Getenv("NIGHTSMITH_PATH_STATE"))
-	fmt.Printf(`
+	printf(`
   Ready. It's running now.
 
     %[1]s start     turn it on
@@ -264,15 +264,19 @@ func printReady(c Config) {
 
 `, n)
 	printEndpoint(c)
-	fmt.Println()
+	printf(`
+  Settings: %s — each one explained.
+  '%s config check' shows what they cost.
+
+`, shortPath(configPath()), n)
 }
 
 // printEndpoint is what a program pointed at the server needs: where it is,
 // and the model id to send. /v1/models says the same, but only to someone who
 // already knows to ask.
 func printEndpoint(c Config) {
-	fmt.Printf("  While it's on, it's at  http://127.0.0.1:%d/v1\n", c.Port)
-	fmt.Printf("  OpenAI-compatible · model %q, or leave it out\n", c.Model)
+	printf("  While it's on, it's at  http://127.0.0.1:%d/v1\n", c.Port)
+	printf("  OpenAI-compatible · model %q, or leave it out\n", c.Model)
 }
 
 // CommandName is how the last screen spells the command, so that every line it
@@ -319,15 +323,22 @@ func cmdStart() error {
 	// An open port is not a started model: the weights load after it opens,
 	// and a client that connects then waits ~45 s with nothing to tell it
 	// why. "Started" is printed only once a real answer has come back.
-	fmt.Printf("\n  Loading the model — about 45 s the first time…\n")
+	printf("\n  Loading the model — about 45 s the first time…\n")
 	if _, err := Probe(cfg.Port, cfg, m, "Reply with the single word: ready"); err != nil {
 		StopServer() // never leave 7 GB resident with nothing working
 		return fmt.Errorf("the model started but couldn't answer: %w\n\n%s", err, indentTail(readLog(), 8))
 	}
-	fmt.Printf("  ✓  Started, and it answered (%s). pid %d\n\n", humanDuration(time.Since(started).Seconds()), pid)
+	printf("  ✓  Started, and it answered (%s). pid %d\n\n", humanDuration(time.Since(started).Seconds()), pid)
 	printEndpoint(cfg)
+	printConfigWarnings(true)
 	fmt.Println()
 	return nil
+}
+
+func printConfigWarnings(running bool) {
+	for _, w := range ConfigWarnings(running) {
+		printf("\n  ⚠  %s\n", w)
+	}
 }
 
 func cmdStop() error {
@@ -352,24 +363,27 @@ func cmdStatus() error {
 	}
 	pid, ok := ServerPID()
 	if !ok {
-		fmt.Printf("\n  Set up, but not running.\n\n    nightsmith start    turn it on\n\n")
+		printf("\n  Set up, but not running.\n\n    nightsmith start    turn it on\n\n")
 		return nil
 	}
 
-	fmt.Printf("\n  Running (pid %d). Asking it something…\n", pid)
+	printf("\n  Running (pid %d). Asking it something…\n", pid)
 	res, err := Probe(cfg.Port, cfg, m, "Reply with the single word: ready")
 	if err != nil {
 		// This is the case a health check gets wrong. Say it plainly.
-		fmt.Printf("\n  ⚠  The server is up but could not answer:\n     %s\n\n", err)
-		fmt.Printf("     That usually means it ran out of memory. 'nightsmith stop'\n")
-		fmt.Printf("     then 'nightsmith start' will clear it.\n\n")
+		printf("\n  ⚠  The server is up but could not answer:\n     %s\n\n", err)
+		printf("     That usually means it ran out of memory. 'nightsmith stop'\n")
+		printf("     then 'nightsmith start' will clear it.\n\n")
 		return nil
 	}
-	fmt.Printf("  ✓  It answered: %q\n", res.Answer)
+	printf("  ✓  It answered: %q\n", res.Answer)
 	// No speed here: a one-word reply measures latency, not writing speed.
-	now, peak, _ := Footprint(pid)
-	fmt.Printf("  ✓  %s · port %d · using %s (peak %s)\n\n",
-		shortRepo(cfg.Model), cfg.Port, humanBytes(now), humanBytes(peak))
+	// No peak either. The kernel's lifetime peak footprint is a different
+	// measure from the GPU ceiling config check compares against, and printed
+	// beside it (14.4 GB against 12.7) it read as a limit already broken.
+	now, _, _ := Footprint(pid)
+	printf("  ✓  %s · port %d · using %s now\n\n",
+		shortRepo(cfg.Model), cfg.Port, humanBytes(now))
 	return nil
 }
 
@@ -384,27 +398,29 @@ func cmdConfigCheck() error {
 	}
 	e := EstimatePeak(m, cfg.PromptCacheMB, machine.RAMGB, machine.CeilingGB)
 
-	fmt.Printf("\n  model               %s weights\n", humanBytes(m.WeightsBytes))
-	fmt.Printf("  prompt_cache_mb     %.1f GB\n", e.CacheGB)
-	fmt.Printf("  overhead            ~%.1f GB\n\n", e.OverheadGB)
-	fmt.Printf("  Estimated peak      %.1f GB\n", e.PeakGB)
-	fmt.Printf("  This Mac's ceiling  %.1f GB", e.CeilingGB)
+	printf("\n  model               %s weights\n", humanBytes(m.WeightsBytes))
+	printf("  prompt_cache_mb     %.1f GB\n", e.CacheGB)
+	printf("  overhead            ~%.1f GB\n\n", e.OverheadGB)
+	printf("  Estimated peak      %.1f GB\n", e.PeakGB)
+	printf("  This Mac's ceiling  %.1f GB", e.CeilingGB)
 	if e.Fits {
-		fmt.Printf("          ✓ %.1f GB spare\n", e.HeadroomGB)
+		printf("          ✓ %.1f GB spare\n", e.HeadroomGB)
 	} else {
-		fmt.Printf("          ✗ %.1f GB short\n", -e.HeadroomGB)
+		printf("          ✗ %.1f GB short\n", -e.HeadroomGB)
 	}
 	if !machine.CeilingIsMeasured {
-		fmt.Printf("\n  The ceiling is the 75%% rule, not this Mac's reported value,\n")
-		fmt.Printf("  and it runs slightly optimistic. Treat a margin under\n")
-		fmt.Printf("  0.5 GB as no margin.\n")
+		printf("\n  The ceiling is the 75%% rule, not this Mac's reported value,\n")
+		printf("  and it runs slightly optimistic. Treat a margin under\n")
+		printf("  0.5 GB as no margin.\n")
 	}
 	if !e.Fits {
-		fmt.Printf("\n  ✗ %s\n", RefuseReason(m, e, machine.RAMGB))
+		printf("\n  ✗ %s\n", RefuseReason(m, e, machine.RAMGB))
 	}
 	if w := ThinkingConflict(cfg.Thinking, cfg.MaxTokens); w != "" {
-		fmt.Printf("\n  ⚠  %s\n", w)
+		printf("\n  ⚠  %s\n", w)
 	}
+	_, running := ServerPID()
+	printConfigWarnings(running)
 	fmt.Println()
 	return nil
 }
@@ -439,10 +455,10 @@ func cmdModelList() error {
 		default:
 			note = fmt.Sprintf("fits · %.1f GB spare", e.HeadroomGB)
 		}
-		fmt.Printf("%s  %-40s %9s   %s\n", marker, m.Repo, humanBytes(m.TotalBytes()), note)
+		printf("%s  %-40s %9s   %s\n", marker, m.Repo, humanBytes(m.TotalBytes()), note)
 	}
-	fmt.Printf("\n  Sizes are shown because the names give no warning: every row\n")
-	fmt.Printf("  above says -4bit or -8bit, and they span %s to %s.\n\n",
+	printf("\n  Sizes are shown because the names give no warning: every row\n")
+	printf("  above says -4bit or -8bit, and they span %s to %s.\n\n",
 		humanBytes(cat.Ordered()[0].TotalBytes()),
 		humanBytes(cat.Ordered()[len(cat.Ordered())-1].TotalBytes()))
 	return nil
@@ -467,10 +483,10 @@ func cmdModelUse(repo string) error {
 		// It takes a real repo id, because that is what it is. But nothing
 		// about an unlisted model has been checked, and saying so is the
 		// difference between this and "just pick any model from Hugging Face".
-		fmt.Printf("\n  ⚠  %s isn't in the checked list.\n\n", repo)
-		fmt.Printf("     Its size, whether thinking can be turned off, and which\n")
-		fmt.Printf("     server flags break on its architecture are all unknown.\n")
-		fmt.Printf("     It may not load at all.\n\n")
+		printf("\n  ⚠  %s isn't in the checked list.\n\n", repo)
+		printf("     Its size, whether thinking can be turned off, and which\n")
+		printf("     server flags break on its architecture are all unknown.\n")
+		printf("     It may not load at all.\n\n")
 		if !confirm("  Try it anyway?", false) {
 			return nil
 		}
@@ -483,7 +499,7 @@ func cmdModelUse(repo string) error {
 	}
 
 	if _, why := ThinkingHonest(m, cfg.Thinking); why != "" {
-		fmt.Printf("\n  ⚠  %s\n", why)
+		printf("\n  ⚠  %s\n", why)
 	}
 
 	// A swap is not done until the new model has actually answered.
@@ -505,7 +521,7 @@ func cmdModelUse(repo string) error {
 	if err := WriteConfig(cfg); err != nil {
 		return err
 	}
-	fmt.Printf("\n  ✓  %s answered: %q\n\n", shortRepo(repo), res.Answer)
+	printf("\n  ✓  %s answered: %q\n\n", shortRepo(repo), res.Answer)
 	return nil
 }
 
@@ -524,7 +540,7 @@ func cmdRemove(assumeYes bool) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("\n  ✓ Removed %s. Your Mac is back to how it was.\n\n", humanBytes(freed))
+	printf("\n  ✓ Removed %s. Your Mac is back to how it was.\n\n", humanBytes(freed))
 	return nil
 }
 

@@ -46,7 +46,9 @@ slow fallback.
 
   Set it up? [Y/n]
 
-  ✓  Runtime ready                    11s
+  ✓  Fetched uv                       1s
+  ✓  Installed Python 3.12.14         1s
+  ✓  Installed MLX (mlx-lm 0.32.0)    7s
   ✓  Downloaded gemma-4-12B-it-4bit   6.8 GB   2m52s
   ✓  Started the model                1s
   ✓  Asked it something — it answered:
@@ -63,6 +65,9 @@ slow fallback.
 
   While it's on, it's at  http://127.0.0.1:8080/v1
   OpenAI-compatible · model "mlx-community/gemma-4-12B-it-4bit", or leave it out
+
+  Settings: ~/.nightsmith/config.toml — each one explained.
+  'nightsmith config check' shows what they cost.
 ```
 
 ## Using it from a program
@@ -80,6 +85,10 @@ at a custom base URL can use it.
   start` returns only once the model has answered, so a client started after
   it will not normally see `loading`.
 - **Bad requests get a 400** that names the field, in the OpenAI error shape.
+- **Defaults come from your settings.** A request that leaves out
+  `max_tokens` or `temperature` gets the values in `~/.nightsmith/config.toml`
+  (1500 and 0 unless you changed them).
+- In Activity Monitor the server is **`nightsmith-model`**.
 - `/health` is a hint. The only proof that a request will work is a request
   that worked — that is how nightsmith checks itself.
 
@@ -91,7 +100,7 @@ at a custom base URL can use it.
 | `nightsmith start` / `stop` | Turn the model server on and off |
 | `nightsmith status` | Ask it a real question, and show its memory use |
 | `nightsmith remove` | List everything it installed, then delete it (`uninstall` works too) |
-| `nightsmith config check` | Estimate peak memory for your settings against this Mac's limit |
+| `nightsmith config check` | Estimate peak memory for the settings in `~/.nightsmith/config.toml` against this Mac's limit; flags misspelled settings, and ones the running server hasn't picked up yet |
 | `nightsmith model list` | What fits on this Mac, with real sizes |
 | `nightsmith model use <repo>` | Switch model, and prove the new one answers |
 
