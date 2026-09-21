@@ -81,3 +81,17 @@ func mustWrite(t *testing.T, path string, size int) {
 		t.Fatal(err)
 	}
 }
+
+// serve.py is written on every start; if remove left it, ~/.nightsmith would
+// survive a remove that said it was gone.
+func TestRemovalIncludesTheServerWrapper(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	mustWrite(t, serveScriptPath(), 100)
+	for _, it := range PlanRemoval().Items {
+		if it.Path == serveScriptPath() {
+			return
+		}
+	}
+	t.Error("serve.py is not in the removal plan")
+}

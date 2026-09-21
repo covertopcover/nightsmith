@@ -19,7 +19,8 @@ import (
 //	A checkmark may only appear after a real completion came back.
 //
 // So there is no health-check function in this file, and there must never be
-// one. Anything less than a real answer is a health check that lies, and that
+// one. The server's /health (serve.py) exists for clients, as a hint; nothing
+// here reads it. Anything less than a real answer is a health check that lies, and that
 // is the whole difference between a tool that works and a tool that reports
 // that it works.
 
@@ -99,8 +100,8 @@ func Probe(port int, c Config, m Model, question string) (ProbeResult, error) {
 	var r ProbeResult
 
 	// No model field: the server then answers with the model it was started
-	// with. Naming the repo here would make mlx_lm try to load that repo id as
-	// a second model, since it was started from a local path.
+	// with. The repo id is accepted too (serve.py maps it), but leaving it out
+	// cannot be misspelled.
 	body, err := json.Marshal(chatRequest{
 		Messages:           []chatMessage{{Role: "user", Content: question}},
 		MaxTokens:          c.MaxTokens,

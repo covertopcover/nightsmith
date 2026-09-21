@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -62,6 +63,24 @@ func ServerArgs(c Config, m Model, modelPath string) []string {
 	}
 
 	return args
+}
+
+// serve.py wraps the pinned mlx_lm server so its HTTP edges tell clients the
+// truth: a 400 instead of a dropped connection, a /health that says when the
+// model is still loading, the repo id instead of a path in /v1/models, and an
+// unknown model id refused before the server unloads the real one to look for
+// it. Generation itself is untouched. Written out on every start, so a new
+// binary always runs its own copy.
+//
+//go:embed serve.py
+var serveScript []byte
+
+func serveScriptPath() string { return filepath.Join(stateDir(), "serve.py") }
+
+// ServerCommand is the full argv after the interpreter.
+func ServerCommand(c Config, m Model, modelPath string) []string {
+	return append([]string{serveScriptPath(), "--served-model-id", m.Repo},
+		ServerArgs(c, m, modelPath)...)
 }
 
 // pythonBin is the interpreter inside the vendored runtime. Never the system
@@ -148,9 +167,13 @@ func StartServer(c *Config, m Model) (int, error) {
 		c.Port = p
 	}
 
-	// `-m mlx_lm server`, not `-m mlx_lm.server`, which the pinned version
-	// deprecates.
-	cmd := exec.Command(pythonBin(), append([]string{"-m", "mlx_lm", "server"}, ServerArgs(*c, m, modelPath)...)...)
+	if err := os.MkdirAll(stateDir(), 0o755); err != nil {
+		return 0, err
+	}
+	if err := os.WriteFile(serveScriptPath(), serveScript, 0o644); err != nil {
+		return 0, err
+	}
+	cmd := exec.Command(pythonBin(), ServerCommand(*c, m, modelPath)...)
 	cmd.Env = append(uvEnv(), "HF_HOME="+c.ModelsDir, "HF_HUB_DISABLE_TELEMETRY=1")
 	if c.Offline {
 		// Stops a background task stalling on the network, and stops weights
@@ -216,8 +239,18 @@ func ServerPID() (int, bool) {
 	if err != nil {
 		return 0, false
 	}
-	cmdline := string(out)
-	return pid, strings.Contains(cmdline, "mlx_lm server") && strings.Contains(cmdline, runtimeDir())
+	return pid, isOurServer(string(out))
+}
+
+// isOurServer recognises both launch forms: serve.py, and the bare
+// `-m mlx_lm server` of v0.1.1 and earlier — so `stop` after an upgrade still
+// finds a server the previous version started.
+func isOurServer(cmdline string) bool {
+	if !strings.Contains(cmdline, runtimeDir()) {
+		return false
+	}
+	return strings.Contains(cmdline, serveScriptPath()+" --served-model-id") ||
+		strings.Contains(cmdline, "mlx_lm server")
 }
 
 // StopServer stops the server and waits until it has actually gone. Returning

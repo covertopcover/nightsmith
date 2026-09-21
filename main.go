@@ -262,9 +262,17 @@ func printReady(c Config) {
     %[1]s status    is it running, and how much memory
     %[1]s remove    take it back off this Mac
 
-  While it's on, it's at  http://127.0.0.1:%[2]d
+`, n)
+	printEndpoint(c)
+	fmt.Println()
+}
 
-`, n, c.Port)
+// printEndpoint is what a program pointed at the server needs: where it is,
+// and the model id to send. /v1/models says the same, but only to someone who
+// already knows to ask.
+func printEndpoint(c Config) {
+	fmt.Printf("  While it's on, it's at  http://127.0.0.1:%d/v1\n", c.Port)
+	fmt.Printf("  OpenAI-compatible · model %q, or leave it out\n", c.Model)
 }
 
 // CommandName is how the last screen spells the command, so that every line it
@@ -294,6 +302,7 @@ func cmdStart() error {
 		return err
 	}
 	port := cfg.Port
+	started := time.Now()
 	pid, err := StartServer(&cfg, m)
 	if err != nil {
 		return err
@@ -306,7 +315,18 @@ func cmdStart() error {
 			return err
 		}
 	}
-	fmt.Printf("\n  Started (pid %d). It's at http://127.0.0.1:%d\n\n", pid, cfg.Port)
+
+	// An open port is not a started model: the weights load after it opens,
+	// and a client that connects then waits ~45 s with nothing to tell it
+	// why. "Started" is printed only once a real answer has come back.
+	fmt.Printf("\n  Loading the model — about 45 s the first time…\n")
+	if _, err := Probe(cfg.Port, cfg, m, "Reply with the single word: ready"); err != nil {
+		StopServer() // never leave 7 GB resident with nothing working
+		return fmt.Errorf("the model started but couldn't answer: %w\n\n%s", err, indentTail(readLog(), 8))
+	}
+	fmt.Printf("  ✓  Started, and it answered (%s). pid %d\n\n", humanDuration(time.Since(started).Seconds()), pid)
+	printEndpoint(cfg)
+	fmt.Println()
 	return nil
 }
 

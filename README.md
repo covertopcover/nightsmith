@@ -61,11 +61,27 @@ slow fallback.
     nightsmith status    is it running, and how much memory
     nightsmith remove    take it back off this Mac
 
-  While it's on, it's at  http://127.0.0.1:8080
+  While it's on, it's at  http://127.0.0.1:8080/v1
+  OpenAI-compatible · model "mlx-community/gemma-4-12B-it-4bit", or leave it out
 ```
+
+## Using it from a program
 
 The server speaks the OpenAI chat-completions API, so anything that can point
 at a custom base URL can use it.
+
+- **Base URL** `http://127.0.0.1:8080/v1`. If 8080 was taken, setup picked the
+  next free port; `nightsmith status` shows the one in use.
+- **Model id** is the Hub repo, as `/v1/models` lists it. Leaving `model` out
+  works too. Any other id is refused with a 404 — it never unloads the model
+  that is serving.
+- **`GET /health`** says `ready` (200), `loading` (503, with `Retry-After`) or
+  `failed` (503: run `nightsmith stop`, then `nightsmith start`). `nightsmith
+  start` returns only once the model has answered, so a client started after
+  it will not normally see `loading`.
+- **Bad requests get a 400** that names the field, in the OpenAI error shape.
+- `/health` is a hint. The only proof that a request will work is a request
+  that worked — that is how nightsmith checks itself.
 
 ## Commands
 
@@ -108,6 +124,11 @@ Nightsmith handles the things that make local models fail silently:
   arrives.
 - **Models are pinned to a Hub commit and checked by size**, so a partial
   download is never mistaken for a model.
+- **The server's edges are made honest.** Stock `mlx_lm.server` drops the
+  connection on a request with no `messages`, says `ok` while the weights are
+  still loading, and unloads the model it is serving when asked for one it
+  doesn't have. Nightsmith runs it through a small wrapper (`serve.py`) that
+  fixes those three and leaves generation untouched.
 
 ## Status
 
