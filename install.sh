@@ -94,13 +94,24 @@ path_has_bin_dir() {
     case ":${PATH}:" in *":${BIN_DIR}:"*) return 0 ;; *) return 1 ;; esac
 }
 rc_has_bin_dir() {
-    [ -f "$RC" ] && grep -q "$BIN_DIR" "$RC" 2>/dev/null
+    rel="${BIN_DIR#"$HOME"/}"
+    [ -f "$RC" ] && grep -qF -e "$BIN_DIR" -e "\$HOME/$rel" -e "~/$rel" "$RC" 2>/dev/null
 }
 
+# Two separate questions:
+#   need_path_edit   does the profile file need our line?
+#   shell_lacks_bin  does the shell running this lack the directory right now?
+# For zsh the first is asked of .zshenv alone. A PATH that already has
+# ~/.local/bin usually got it from .zshrc — an earlier install, or pipx or uv —
+# and .zshrc reaches interactive shells only, so the directory being on PATH
+# here says nothing about `zsh -c` or a coding agent.
 need_path_edit=0
-if ! path_has_bin_dir && ! rc_has_bin_dir; then
-    need_path_edit=1
-fi
+shell_lacks_bin=0
+path_has_bin_dir || shell_lacks_bin=1
+case "$RC" in
+    */.zshenv) rc_has_bin_dir || need_path_edit=1 ;;
+    *) [ "$shell_lacks_bin" = "1" ] && ! rc_has_bin_dir && need_path_edit=1 ;;
+esac
 
 if [ "$VERSION" = "latest" ]; then
     URL="https://github.com/$REPO/releases/latest/download/$ASSET"
@@ -197,13 +208,15 @@ if [ "$need_path_edit" = "1" ]; then
             printf '\n# added by nightsmith\nexport PATH="%s:$PATH"\n' "$BIN_DIR" >> "$RC" ;;
     esac
     ok "Added $BIN_DIR to your PATH in $(basename "$RC")"
+fi
+if [ "$shell_lacks_bin" = "1" ]; then
     PATH="$BIN_DIR:$PATH"
     export PATH
 fi
 
 if [ "$NO_RUN" = "1" ]; then
     echo
-    if [ "$need_path_edit" = "1" ]; then
+    if [ "$shell_lacks_bin" = "1" ]; then
         say "This terminal doesn't know the command yet. Run this once,"
         say "or open a new terminal window:"
         echo
@@ -246,7 +259,7 @@ if ! { : < /dev/tty; } 2>/dev/null; then
     # No terminal to hand over (CI, a non-interactive shell). Don't start
     # something interactive that cannot be answered.
     say "No terminal attached, so setup wasn't started."
-    if [ "$need_path_edit" = "1" ]; then
+    if [ "$shell_lacks_bin" = "1" ]; then
         # The short name will not work in a shell started before the PATH
         # edit, so give the path that works anywhere.
         say "Run '$(printf '%s' "$BIN" | sed "s|^$HOME|~|")' from a terminal when you're ready."
@@ -256,7 +269,7 @@ if ! { : < /dev/tty; } 2>/dev/null; then
     exit 0
 fi
 
-if [ "$need_path_edit" = "1" ]; then
+if [ "$shell_lacks_bin" = "1" ]; then
     NIGHTSMITH_PATH_STATE=fresh-shell
 else
     NIGHTSMITH_PATH_STATE=""
@@ -269,7 +282,7 @@ if ! "$BIN" < /dev/tty; then
     exit 1
 fi
 
-if [ "$need_path_edit" = "1" ]; then
+if [ "$shell_lacks_bin" = "1" ]; then
     echo
     say "Opened a fresh shell here, so the nightsmith command works."
     say "(Type 'exit' to return to where you were.)"
