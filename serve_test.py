@@ -92,12 +92,45 @@ class Model(unittest.TestCase):
                                  "adapters": None}))
 
 
+class ResponseFormat(unittest.TestCase):
+    # Nothing constrains the output, so a request for JSON or a schema would
+    # get a 200 and whatever the model wrote. Refuse it instead.
+    def test_json_schema_is_a_400_naming_the_field(self):
+        err = check({"messages": OK_MESSAGES, "response_format": {
+            "type": "json_schema",
+            "json_schema": {"name": "c", "schema": {"type": "object"}}}})
+        self.assertEqual((err.status, err.param), (400, "response_format"))
+
+    def test_json_object_is_a_400(self):
+        err = check({"messages": OK_MESSAGES,
+                     "response_format": {"type": "json_object"}})
+        self.assertEqual((err.status, err.param), (400, "response_format"))
+
+    def test_text_and_none_are_what_it_does_anyway(self):
+        self.assertIsNone(check({"messages": OK_MESSAGES,
+                                 "response_format": {"type": "text"}}))
+        self.assertIsNone(check({"messages": OK_MESSAGES, "response_format": None}))
+
+    def test_not_an_object(self):
+        err = check({"messages": OK_MESSAGES, "response_format": "json"})
+        self.assertEqual(err.status, 400)
+
+    def test_text_completions_too(self):
+        err = check({"prompt": "hi", "response_format": {"type": "json_object"}},
+                    path="/v1/completions")
+        self.assertEqual(err.param, "response_format")
+
+
 class Health(unittest.TestCase):
     def test_states(self):
         self.assertEqual(health_state(True, False), "loading")
         self.assertEqual(health_state(True, True), "ready")
         self.assertEqual(health_state(False, True), "failed")
         self.assertEqual(health_state(False, False), "failed")
+
+    def test_stopping_wins(self):
+        self.assertEqual(health_state(True, True, stopping=True), "stopping")
+        self.assertEqual(health_state(False, True, stopping=True), "stopping")
 
 
 class ErrorBody(unittest.TestCase):

@@ -21,6 +21,13 @@ is what a client sees at the edges, where the stock server misleads it:
   6.8 GB of loaded weights, and the next good request paid for reloading them.
   Now: an unknown id is refused before anything is unloaded. draft_model and
   adapters reach the same code, and are refused for the same reason.
+- response_format was accepted and ignored: a request for JSON, or for a
+  schema, got a 200 and whatever the model wrote, fences and all. Nothing
+  here constrains the output, so asking for it is now a 400 that says so.
+- A stop (SIGTERM) killed the process mid-answer, and every client waiting
+  on it got a closed connection. Now: requests already in progress finish
+  (up to DRAIN_SECONDS), new ones get a 503 with Retry-After, and /health
+  says "stopping".
 
 /health is a hint for clients. Nightsmith itself never trusts it: every
 checkmark it prints still comes from a real completion.
@@ -38,6 +45,9 @@ PINNED_MLX_LM = "0.32.0"
 CHAT_PATHS = ("/v1/chat/completions", "/chat/completions")
 TEXT_PATHS = ("/v1/completions",)
 DEFAULT = "default_model"
+# How long a stop waits for requests in progress. `nightsmith stop` waits
+# longer than this before it resorts to SIGKILL.
+DRAIN_SECONDS = 30
 
 
 class ClientError(Exception):
@@ -90,6 +100,17 @@ def check_request(path, body, aliases, advertised):
             return ClientError(400, "'prompt' is required and must be a string",
                                param="prompt")
 
+    rf = body.get("response_format")
+    if rf is not None and rf != {"type": "text"}:
+        return ClientError(
+            400,
+            "'response_format' is not supported here: nothing constrains the "
+            "output to JSON or to a schema, so it would be ignored. Ask for "
+            "JSON in the prompt and parse the reply, or leave "
+            "'response_format' out",
+            param="response_format",
+        )
+
     if "model" in body:
         model = body["model"]
         if not isinstance(model, str) or model == "":
@@ -118,7 +139,9 @@ def check_request(path, body, aliases, advertised):
     return None
 
 
-def health_state(generation_available, model_loaded):
+def health_state(generation_available, model_loaded, stopping=False):
+    if stopping:
+        return "stopping"  # finishing what it has, taking nothing new
     if not generation_available:
         return "failed"  # the generation thread died; a person must restart it
     if not model_loaded:
@@ -143,6 +166,7 @@ def error_body(err):
 def _patch(server, repo):
     import json
     import logging
+    import signal
     import threading
     import time
 
@@ -151,6 +175,7 @@ def _patch(server, repo):
     orig_validate = H.validate_model_parameters
     orig_send_response = H.send_response
     in_flight = [0]
+    stopping = [False]
     lock = threading.Lock()
     created = int(time.time())
 
@@ -181,6 +206,11 @@ def _patch(server, repo):
     def do_POST(self):
         self._ns_headers_sent = False
         counted = self.path in CHAT_PATHS + TEXT_PATHS
+        if counted and stopping[0]:
+            reply(self, 503, error_body(ClientError(
+                503, "the server is stopping; retry once it is started again")),
+                headers=[("Retry-After", "10")])
+            return
         if counted:
             with lock:
                 in_flight[0] += 1
@@ -205,12 +235,14 @@ def _patch(server, repo):
     def handle_health_check(self):
         rg = self.response_generator
         state = health_state(rg.generation_available(),
-                             rg.model_provider.model is not None)
+                             rg.model_provider.model is not None, stopping[0])
         body = {"status": state, "model": repo, "in_flight": in_flight[0]}
         if state == "ready":
             reply(self, 200, body)
         elif state == "loading":
             reply(self, 503, body, headers=[("Retry-After", "5")])
+        elif state == "stopping":
+            reply(self, 503, body, headers=[("Retry-After", "10")])
         else:
             reply(self, 503, body)
 
@@ -234,6 +266,28 @@ def _patch(server, repo):
     H.do_POST = do_POST
     H.handle_health_check = handle_health_check
     H.handle_models_request = handle_models_request
+
+    # The main thread is inside serve_forever, which is where this handler
+    # runs, so the server cannot be shut down from here. Nothing needs it to
+    # be: new completions are refused above, and once the ones in progress
+    # are answered the process exits.
+    def drain_then_exit():
+        deadline = time.monotonic() + DRAIN_SECONDS
+        while in_flight[0] > 0 and time.monotonic() < deadline:
+            time.sleep(0.1)
+        if in_flight[0] > 0:
+            logging.warning(f"stopping with {in_flight[0]} request(s) unanswered "
+                            f"after {DRAIN_SECONDS} s")
+        os._exit(0)
+
+    def on_sigterm(signum, frame):
+        if stopping[0]:
+            return
+        stopping[0] = True
+        logging.info(f"stopping: finishing {in_flight[0]} request(s) in progress")
+        threading.Thread(target=drain_then_exit, daemon=True).start()
+
+    signal.signal(signal.SIGTERM, on_sigterm)
 
 
 def _check_pin(mlx_lm, server):

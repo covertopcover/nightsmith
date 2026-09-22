@@ -80,8 +80,11 @@ ok "Apple Silicon · macOS $macos"
 # password. Ollama's installer falls back to `sudo ln -sf`; not copying that is
 # the concrete difference this product is making.
 
+# zsh: .zshenv, not .zshrc. Every zsh reads .zshenv; only interactive ones
+# read .zshrc, so a PATH line there is invisible to `zsh -c`, cron, editors and
+# coding agents, which then answer "nightsmith not found" on a working install.
 case "$SHELL" in
-    */zsh)  RC="$HOME/.zshrc" ;;
+    */zsh)  RC="$HOME/.zshenv" ;;
     */bash) RC="$HOME/.bash_profile" ;;
     */fish) RC="$HOME/.config/fish/config.fish" ;;
     *)      RC="$HOME/.profile" ;;

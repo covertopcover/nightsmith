@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -292,6 +293,40 @@ func isOurServer(cmdline string) bool {
 		strings.Contains(cmdline, "mlx_lm server")
 }
 
+// On SIGTERM, serve.py stops taking new completions and lets the ones in
+// progress finish, for up to drainSeconds (its DRAIN_SECONDS — keep the two
+// equal). StopServer waits stopWait before SIGKILL: the drain plus the time
+// it takes to unmap 7 GB of weights.
+const (
+	drainSeconds = 30
+	stopWait     = (drainSeconds + 15) * time.Second
+)
+
+// InFlight asks the server's /health how many requests it is working on.
+// Zero on any failure: it only decides whether to say "finishing…".
+func InFlight(port int) int {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/health", port))
+	if err != nil {
+		return 0
+	}
+	defer resp.Body.Close()
+	var body struct {
+		InFlight int `json:"in_flight"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&body) != nil {
+		return 0
+	}
+	return body.InFlight
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
 // StopServer stops the server and waits until it has actually gone. Returning
 // early is not harmless: `model use` starts the next model straight after, and
 // two models resident on 16 GB is the Metal OOM the benchmark hit.
@@ -310,7 +345,7 @@ func StopServer() (bool, error) {
 	if err := p.Signal(syscall.SIGTERM); err != nil {
 		return false, err
 	}
-	for i := 0; i < 60; i++ { // 15 s: unmapping 7 GB of weights is not instant
+	for deadline := time.Now().Add(stopWait); time.Now().Before(deadline); {
 		if !ProcessAlive(pid) {
 			return true, nil
 		}

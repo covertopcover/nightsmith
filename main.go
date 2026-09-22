@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -13,7 +14,7 @@ import (
 //
 //	nightsmith                 set up, or report that setup is done
 //	nightsmith start|stop      the server
-//	nightsmith status          proved by a real completion, never a ping
+//	nightsmith status [--json] proved by a real completion, never a ping
 //	nightsmith remove          take it back off this Mac  (alias: uninstall)
 //	nightsmith config check    estimate peak memory against this Mac's ceiling
 //	nightsmith model list|use  what fits, with sizes
@@ -26,6 +27,10 @@ var version = "0.0.0-dev"
 func main() {
 	args := os.Args[1:]
 	if err := run(args); err != nil {
+		var code exitCode
+		if errors.As(err, &code) {
+			os.Exit(int(code)) // already reported; the code is the message
+		}
 		fmt.Fprint(os.Stderr, colorize(fmt.Sprintf("\n  ✗ %s\n\n", err), colorOn(os.Stderr)))
 		os.Exit(1)
 	}
@@ -41,7 +46,7 @@ func run(args []string) error {
 	case "stop":
 		return cmdStop()
 	case "status":
-		return cmdStatus()
+		return cmdStatus(hasFlag(args, "--json"))
 	case "remove", "uninstall":
 		// `remove` is the name; `uninstall` is what people type, because it is
 		// the verb every other tool uses. Making them guess right is a
@@ -82,6 +87,10 @@ func printHelp() {
     nightsmith status         is it running, and how much memory
     nightsmith remove         take it back off this Mac
 
+    nightsmith status --json  the same, for programs. Exit code, either way:
+                              0 it answered · 3 not running ·
+                              4 running but not answering · 1 anything else
+
     nightsmith config check   what the settings in ~/.nightsmith/config.toml
                               will cost, against what this Mac can give them
     nightsmith model list     what fits, what doesn't, with sizes
@@ -110,7 +119,12 @@ func cmdSetup() error {
 	if ConfigExists() {
 		// Re-running a command to check it worked is what non-developers do.
 		// It must be instant, idempotent, and must never re-download.
-		return cmdStatus()
+		// Not running is a fine answer here, not a failure.
+		var code exitCode
+		if err := cmdStatus(false); err != nil && !errors.As(err, &code) {
+			return err
+		}
+		return nil
 	}
 
 	printf("\n  Nightsmith — AI that runs on your own Mac.\n\n  Looking at this Mac…\n\n")
@@ -342,6 +356,16 @@ func printConfigWarnings(running bool) {
 }
 
 func cmdStop() error {
+	// A stop lets requests in progress finish. Say so, or a pause of up to
+	// half a minute reads as a hang.
+	if cfg, err := LoadConfig(); err == nil {
+		if _, ok := ServerPID(); ok {
+			if n := InFlight(cfg.Port); n > 0 {
+				printf("\n  Finishing %d request%s in progress (up to %d s)…\n",
+					n, plural(n), drainSeconds)
+			}
+		}
+	}
 	stopped, err := StopServer()
 	if err != nil {
 		return err
@@ -354,34 +378,101 @@ func cmdStop() error {
 	return nil
 }
 
+// exitCode ends the program with that code and nothing printed: the command
+// has already said what happened.
+type exitCode int
+
+func (c exitCode) Error() string { return fmt.Sprintf("exit status %d", int(c)) }
+
+// status's exit codes, the same with or without --json.
+const (
+	statusNotRunning   exitCode = 3
+	statusNotAnswering exitCode = 4
+)
+
+// StatusReport is `status --json`. State is "ready" only after a real answer.
+type StatusReport struct {
+	State       string `json:"state"` // ready | not_running | not_answering
+	Model       string `json:"model"`
+	Port        int    `json:"port"`
+	URL         string `json:"url"`
+	PID         int    `json:"pid,omitempty"`
+	MemoryBytes int64  `json:"memory_bytes,omitempty"`
+	Error       string `json:"error,omitempty"`
+}
+
+func newStatusReport(cfg Config, pid int, probeErr error, memory int64) StatusReport {
+	r := StatusReport{Model: cfg.Model, Port: cfg.Port,
+		URL: fmt.Sprintf("http://127.0.0.1:%d/v1", cfg.Port)}
+	switch {
+	case pid == 0:
+		r.State = "not_running"
+	case probeErr != nil:
+		r.State, r.PID, r.Error = "not_answering", pid, probeErr.Error()
+	default:
+		r.State, r.PID, r.MemoryBytes = "ready", pid, memory
+	}
+	return r
+}
+
+func (r StatusReport) exit() error {
+	switch r.State {
+	case "not_running":
+		return statusNotRunning
+	case "not_answering":
+		return statusNotAnswering
+	}
+	return nil
+}
+
+func printJSON(v any) {
+	b, _ := json.MarshalIndent(v, "", "  ")
+	fmt.Println(string(b))
+}
+
 // cmdStatus must use a real completion, not a ping, or it will cheerfully
 // report a post-OOM zombie as healthy.
-func cmdStatus() error {
+func cmdStatus(asJSON bool) error {
 	cfg, _, m, err := loaded()
 	if err != nil {
 		return err
 	}
 	pid, ok := ServerPID()
 	if !ok {
-		printf("\n  Set up, but not running.\n\n    nightsmith start    turn it on\n\n")
-		return nil
+		r := newStatusReport(cfg, 0, nil, 0)
+		if asJSON {
+			printJSON(r)
+		} else {
+			printf("\n  Set up, but not running.\n\n    nightsmith start    turn it on\n\n")
+		}
+		return r.exit()
 	}
 
-	printf("\n  Running (pid %d). Asking it something…\n", pid)
+	if !asJSON {
+		printf("\n  Running (pid %d). Asking it something…\n", pid)
+	}
 	res, err := Probe(cfg.Port, cfg, m, "Reply with the single word: ready")
+	var now int64
+	if err == nil {
+		now, _, _ = Footprint(pid)
+	}
+	r := newStatusReport(cfg, pid, err, now)
+	if asJSON {
+		printJSON(r)
+		return r.exit()
+	}
 	if err != nil {
 		// This is the case a health check gets wrong. Say it plainly.
 		printf("\n  ⚠  The server is up but could not answer:\n     %s\n\n", err)
 		printf("     That usually means it ran out of memory. 'nightsmith stop'\n")
 		printf("     then 'nightsmith start' will clear it.\n\n")
-		return nil
+		return r.exit()
 	}
 	printf("  ✓  It answered: %q\n", res.Answer)
 	// No speed here: a one-word reply measures latency, not writing speed.
 	// No peak either. The kernel's lifetime peak footprint is a different
 	// measure from the GPU ceiling config check compares against, and printed
 	// beside it (14.4 GB against 12.7) it read as a limit already broken.
-	now, _, _ := Footprint(pid)
 	printf("  ✓  %s · port %d · using %s now\n\n",
 		shortRepo(cfg.Model), cfg.Port, humanBytes(now))
 	return nil

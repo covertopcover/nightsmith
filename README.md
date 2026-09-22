@@ -80,11 +80,17 @@ at a custom base URL can use it.
 - **Model id** is the Hub repo, as `/v1/models` lists it. Leaving `model` out
   works too. Any other id is refused with a 404 — it never unloads the model
   that is serving.
-- **`GET /health`** says `ready` (200), `loading` (503, with `Retry-After`) or
-  `failed` (503: run `nightsmith stop`, then `nightsmith start`). `nightsmith
+- **`GET /health`** says `ready` (200), `loading` (503, with `Retry-After`),
+  `stopping` (503, with `Retry-After`) or `failed` (503: run `nightsmith
+  stop`, then `nightsmith start`). `nightsmith
   start` returns only once the model has answered, so a client started after
   it will not normally see `loading`.
 - **Bad requests get a 400** that names the field, in the OpenAI error shape.
+- **`response_format` is refused with a 400.** Nothing here constrains output
+  to JSON or a schema, so accepting it would be a promise not kept. Ask for
+  JSON in the prompt and parse the reply.
+- **`nightsmith stop` lets requests in progress finish** (up to 30 s). New
+  requests during that time get a 503 with `Retry-After`.
 - **Defaults come from your settings.** A request that leaves out
   `max_tokens` or `temperature` gets the values in `~/.nightsmith/config.toml`
   (1500 and 0 unless you changed them).
@@ -99,6 +105,7 @@ at a custom base URL can use it.
 | `nightsmith` | Set up, or report that setup is already done |
 | `nightsmith start` / `stop` | Turn the model server on and off |
 | `nightsmith status` | Ask it a real question, and show its memory use |
+| `nightsmith status --json` | The same, for programs: `state`, `model`, `port`, `url`, `pid`, `memory_bytes`. Exit code either way: 0 answered, 3 not running, 4 running but not answering |
 | `nightsmith remove` | List everything it installed, then delete it (`uninstall` works too) |
 | `nightsmith config check` | Estimate peak memory for the settings in `~/.nightsmith/config.toml` against this Mac's limit; flags misspelled settings, and ones the running server hasn't picked up yet |
 | `nightsmith model list` | What fits on this Mac, with real sizes |
