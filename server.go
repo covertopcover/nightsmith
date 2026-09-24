@@ -72,6 +72,24 @@ func ServerArgs(c Config, m Model, modelPath string) []string {
 	return args
 }
 
+// What the server will take at once, mirrored here so the tool can explain a
+// refusal without asking the server, and so `-p` can refuse an oversized
+// prompt before sending it anywhere.
+//
+// serve.py holds the reasoning and the measurements, and is the source of
+// truth: server_test.go reads these values back out of it and fails if the
+// two drift apart.
+const (
+	maxPromptTokens       = 40_000
+	maxConcurrentRequests = 3
+
+	// Where this side stops sending without asking. Higher than the ceiling
+	// because this side estimates from characters and the server counts with
+	// the model's tokenizer: half as much again is past anything the two could
+	// disagree about, and everything below it is the server's call to make.
+	certainlyTooLarge = maxPromptTokens * 3 / 2
+)
+
 // serve.py wraps the pinned mlx_lm server so its HTTP edges tell clients the
 // truth: a 400 instead of a dropped connection, a /health that says when the
 // model is still loading, the repo id instead of a path in /v1/models, and an
@@ -86,8 +104,15 @@ func serveScriptPath() string { return filepath.Join(stateDir(), "serve.py") }
 
 // ServerCommand is the full argv after the interpreter.
 func ServerCommand(c Config, m Model, modelPath string) []string {
-	return append([]string{serveScriptPath(), "--served-model-id", m.Repo},
-		ServerArgs(c, m, modelPath)...)
+	return append([]string{
+		serveScriptPath(),
+		"--served-model-id", m.Repo,
+		// How long serve.py lets answers in progress finish after a stop.
+		// Passed rather than hard-coded at both ends, because the right
+		// number depends on max_tokens and there is no way to keep two
+		// constants equal by asking people to remember.
+		"--drain-seconds", strconv.Itoa(int(DrainWindow(c.MaxTokens).Seconds())),
+	}, ServerArgs(c, m, modelPath)...)
 }
 
 // modelBin is the name the server runs under. macOS names a process after
@@ -210,7 +235,7 @@ func StartServer(c *Config, m Model) (int, error) {
 	if err := os.WriteFile(serveScriptPath(), serveScript, 0o644); err != nil {
 		return 0, err
 	}
-	if err := os.WriteFile(runningConfigPath(), []byte(renderConfig(*c)), 0o644); err != nil {
+	if err := os.WriteFile(runningConfigPath(), []byte(renderRunningConfig(*c)), 0o644); err != nil {
 		return 0, err
 	}
 	cmd := exec.Command(ensureModelBin(), ServerCommand(*c, m, modelPath)...)
@@ -220,6 +245,7 @@ func StartServer(c *Config, m Model) (int, error) {
 		// changing under you between runs.
 		cmd.Env = append(cmd.Env, "HF_HUB_OFFLINE=1")
 	}
+	rotateLog()
 	logFile, err := os.OpenFile(serverLog(),
 		os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
@@ -259,11 +285,60 @@ func StartServer(c *Config, m Model) (int, error) {
 	return pid, fmt.Errorf("the model server started but never opened port %d", c.Port)
 }
 
-func serverLog() string { return filepath.Join(stateDir(), "server.log") }
+func serverLog() string   { return filepath.Join(stateDir(), "server.log") }
+func previousLog() string { return serverLog() + ".1" }
 
 func readLog() string {
 	b, _ := os.ReadFile(serverLog())
 	return string(b)
+}
+
+// rotateLog keeps the last run's log instead of overwriting it. A server that
+// ran out of memory says why and then exits, and the next start is usually
+// the very next thing that happens — so truncating here would delete the only
+// evidence of the failure the user is trying to explain.
+func rotateLog() {
+	if fi, err := os.Stat(serverLog()); err != nil || fi.Size() == 0 {
+		return
+	}
+	os.Remove(previousLog())
+	os.Rename(serverLog(), previousLog())
+}
+
+// fatalMarker is what serve.py writes when the generation thread has died.
+// It must match FATAL_MARKER there.
+const fatalMarker = "nightsmith-fatal:"
+
+// StoppedOnItsOwn explains a server that is no longer running but was never
+// stopped — the PID file is still there, and the log says the model ran out
+// of memory. Empty when the server was stopped normally, or said nothing.
+//
+// This exists because the fix for the post-OOM zombie was to let the process
+// exit. Without it the failure would go from a wrong answer (404 for ever) to
+// no answer at all: "set up, but not running", with the reason on the floor.
+// Only the current log is read, never the rotated one. server.log is written
+// by the process the PID file names, because a start rotates before it opens
+// one — so the rotated log belongs to some earlier run, and a crash recorded
+// in it would be told as though it had just happened.
+func StoppedOnItsOwn() string {
+	if _, recorded := readPID(); !recorded {
+		return "" // a clean stop removes the PID file
+	}
+	b, err := os.ReadFile(serverLog())
+	if err != nil {
+		return ""
+	}
+	return lastLineWith(string(b), fatalMarker)
+}
+
+func lastLineWith(log, marker string) string {
+	found := ""
+	for _, line := range strings.Split(log, "\n") {
+		if i := strings.Index(line, marker); i >= 0 {
+			found = strings.TrimSpace(line[i+len(marker):])
+		}
+	}
+	return found
 }
 
 // ServerPID returns the running server's PID — only if the recorded process is
@@ -294,13 +369,52 @@ func isOurServer(cmdline string) bool {
 }
 
 // On SIGTERM, serve.py stops taking new completions and lets the ones in
-// progress finish, for up to drainSeconds (its DRAIN_SECONDS — keep the two
-// equal). StopServer waits stopWait before SIGKILL: the drain plus the time
-// it takes to unmap 7 GB of weights.
+// progress finish. How long that takes is not a constant: it is a whole
+// answer's worth of writing.
+//
+// It used to be a flat 30 s against max_tokens = 1500 at 12.6 tokens/s —
+// 125 s of work given 30 s to finish, so `nightsmith stop` silently threw
+// away any answer longer than about 360 tokens. The window is derived from
+// the two numbers that decide it instead, and passed to serve.py so there is
+// one of it rather than two that have to be kept equal.
 const (
-	drainSeconds = 30
-	stopWait     = (drainSeconds + 15) * time.Second
+	measuredDecodeTokS = 12.6 // base M4 / 16 GB, flat over a 92-minute soak
+	drainMargin        = 1.25 // slower machines, and the last token's overhead
+	minDrainWindow     = 30 * time.Second
+	maxDrainWindow     = 5 * time.Minute // a stop must still feel like a stop
+	unmapWeights       = 15 * time.Second
 )
+
+// DrainWindow is how long an answer in progress is given to finish.
+func DrainWindow(maxTokens int) time.Duration {
+	if maxTokens <= 0 {
+		return minDrainWindow
+	}
+	d := time.Duration(float64(maxTokens) / measuredDecodeTokS * drainMargin * float64(time.Second))
+	switch {
+	case d < minDrainWindow:
+		return minDrainWindow
+	case d > maxDrainWindow:
+		return maxDrainWindow
+	}
+	return d.Round(time.Second)
+}
+
+// RunningDrainWindow is the window the server that is up was started with —
+// read from the settings it recorded at launch, not from the file the user
+// may have edited since.
+func RunningDrainWindow() time.Duration {
+	if c, _, err := readConfigFile(runningConfigPath()); err == nil {
+		return DrainWindow(c.MaxTokens)
+	}
+	if c, err := LoadConfig(); err == nil {
+		return DrainWindow(c.MaxTokens)
+	}
+	return minDrainWindow
+}
+
+// stopWait is the drain plus the time it takes to unmap 7 GB of weights.
+func stopWait() time.Duration { return RunningDrainWindow() + unmapWeights }
 
 // InFlight asks the server's /health how many requests it is working on.
 // Zero on any failure: it only decides whether to say "finishing…".
@@ -345,7 +459,8 @@ func StopServer() (bool, error) {
 	if err := p.Signal(syscall.SIGTERM); err != nil {
 		return false, err
 	}
-	for deadline := time.Now().Add(stopWait); time.Now().Before(deadline); {
+	wait := stopWait()
+	for deadline := time.Now().Add(wait); time.Now().Before(deadline); {
 		if !ProcessAlive(pid) {
 			return true, nil
 		}

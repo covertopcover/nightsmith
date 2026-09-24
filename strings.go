@@ -28,6 +28,20 @@ func humanBytes(b int64) string {
 	return fmt.Sprintf("%.0f KB", float64(b)/1e3) // a config file is not "0 MB"
 }
 
+// humanCount groups a count in thousands: 40,000, not 40000. A five-figure
+// number of tokens read as a phone number without it.
+func humanCount(n int) string {
+	s := fmt.Sprintf("%d", n)
+	var b strings.Builder
+	for i, r := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			b.WriteByte(',')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
 // humanDuration renders a wait the way a person would say it.
 func humanDuration(seconds float64) string {
 	switch {

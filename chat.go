@@ -71,6 +71,33 @@ func buildQuestion(args []string, in io.Reader) (string, error) {
 	}
 }
 
+// TooLargeToSend refuses a prompt that would take the server down with it.
+//
+// A piped file is the one road into this tool that can be any size at all —
+// `cat notes.txt | nightsmith -p "sum this up" -` — and past roughly 50,000
+// tokens a single prompt does not answer slowly, it kills the model server
+// and everything else waiting on it. Measured on a 16 GB M4: 43,389 tokens
+// answered in 406 s; about 58,000 dropped the connection and left nothing
+// running.
+//
+// serve.py refuses the same thing, and it refuses it better: it has the
+// model's tokenizer and counts. This side can only estimate from characters
+// (see window.go), which runs high on repetitive text — so it steps in only
+// where no plausible tokenizer would disagree, and leaves the boundary to the
+// side that can count. Being wrong here would mean refusing to send something
+// the server would have answered.
+func TooLargeToSend(question string) string {
+	size := estimateTokens(question)
+	if size <= certainlyTooLarge {
+		return ""
+	}
+	return fmt.Sprintf("That's about %s tokens, and it answers up to %s.\n\n"+
+		"     Measured on a 16 GB M4: 43,389 tokens were answered in under\n"+
+		"     seven minutes, and about 58,000 killed the server outright.\n"+
+		"     Send it in pieces.",
+		humanCount(size), humanCount(maxPromptTokens))
+}
+
 func cmdAsk(args []string) error {
 	question, err := askQuestion(args)
 	if err != nil {
@@ -83,6 +110,12 @@ func cmdAsk(args []string) error {
 	cfg, _, m, err := loaded()
 	if err != nil {
 		return err
+	}
+	if why := TooLargeToSend(question); why != "" {
+		// exitCode, not an error: the refusal above is the whole message, and
+		// main would print a second one under it.
+		fmt.Fprintf(os.Stderr, "\n  ✗  %s\n\n", why)
+		return exitCode(1)
 	}
 	if _, running := ServerPID(); !running {
 		// Deliberately not offered here. See the note at the top of the file.

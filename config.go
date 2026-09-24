@@ -194,8 +194,16 @@ func WriteConfig(c Config) error {
 	return os.WriteFile(configPath(), []byte(renderConfig(c)), 0o644)
 }
 
-func renderConfig(c Config) string {
-	return fmt.Sprintf(`# ~/.nightsmith/config.toml
+// renderConfig writes the settings file. The same text is written twice — once
+// as the user's config.toml, once as the record of what the running server was
+// started with — so it is told which one it is making. It used to name
+// config.toml in both, so server.toml opened by saying it was another file.
+func renderConfig(c Config) string { return renderConfigAs(c, configPath()) }
+
+func renderRunningConfig(c Config) string { return renderConfigAs(c, runningConfigPath()) }
+
+func renderConfigAs(c Config, path string) string {
+	return fmt.Sprintf(`# %s
 # These are passed straight to the model server. Defaults are
 # measured on a 16 GB M4; "measured" notes say what was observed.
 
@@ -233,6 +241,15 @@ temperature = %v
   # 0 = the same question gives the same answer every time
   # (verified: 60/60 identical). Raise toward 1 for variety,
   # and lose reproducibility.
+  #
+  # The cost of that, measured: at 0, a prompt that fails fails
+  # the SAME WAY every time, so retrying it cannot help. Out of
+  # 30 varied requests for JSON, 27 parsed first try and the 3
+  # that didn't were one prompt, producing one stray quote
+  # character, three times out of three. The same prompt was
+  # fine at 0.3. If one particular prompt will not come out
+  # right, raise the temperature for that prompt rather than
+  # sending it again.
 
 thinking = %v
   # Let the model reason at length before answering. Off by
@@ -276,7 +293,7 @@ offline = %v
   # After the download, never call Hugging Face again. Stops a
   # background task stalling on the network, and stops weights
   # changing under you between runs.
-`, c.Model, c.PromptCacheMB, c.PromptCacheSlots, c.MaxTokens,
+`, shortPath(path), c.Model, c.PromptCacheMB, c.PromptCacheSlots, c.MaxTokens,
 		c.Temperature, c.Thinking, c.ChatTemperature, c.ChatContext,
 		c.ModelsDir, c.Port, c.Offline)
 }

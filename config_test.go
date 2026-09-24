@@ -111,3 +111,29 @@ func TestRenderedConfigRoundTrips(t *testing.T) {
 		t.Errorf("round trip changed %v", ch)
 	}
 }
+
+// The same text is written twice: once as the user's settings, once as the
+// record of what the running server was started with. It used to open by
+// naming config.toml in both, so server.toml claimed to be another file.
+func TestEachConfigFileNamesItself(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	c, _ := LoadCatalog()
+	m, _ := c.Find("mlx-community/gemma-4-12B-it-4bit")
+	cfg := DefaultConfig(c, m)
+
+	if first := headerOf(renderConfig(cfg)); !strings.Contains(first, "config.toml") {
+		t.Errorf("config.toml opens with %q", first)
+	}
+	first := headerOf(renderRunningConfig(cfg))
+	if !strings.Contains(first, "server.toml") {
+		t.Errorf("server.toml opens with %q", first)
+	}
+	if strings.Contains(first, "config.toml") {
+		t.Errorf("server.toml still claims to be config.toml: %q", first)
+	}
+}
+
+func headerOf(s string) string {
+	line, _, _ := strings.Cut(s, "\n")
+	return line
+}

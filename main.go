@@ -13,6 +13,7 @@ import (
 // The command surface:
 //
 //	nightsmith                 set up · talk to it · or report setup is done
+//	nightsmith --yes           set up without asking — for a script
 //	nightsmith -p "…"          one question, one answer — for scripts
 //	nightsmith -c | -r [ID]    pick a past conversation back up
 //	nightsmith start|stop      the server
@@ -40,9 +41,13 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return cmdSetup()
+		return cmdSetup(false)
 	}
 	switch args[0] {
+	case "--yes", "-y":
+		// Setup without being asked, for a machine doing the asking. A flag,
+		// not a verb: the surface stays where it is.
+		return cmdSetup(true)
 	case "-p", "--print":
 		return cmdAsk(args[1:])
 	case "-c", "--continue":
@@ -95,6 +100,9 @@ func printHelp() {
 
     nightsmith                set it up — or, once it is, talk to it
                               (with no terminal: report that setup is done)
+    nightsmith --yes          set it up without asking, for a script. With no
+                              terminal and no --yes, setup doesn't run and
+                              the exit code says so
     nightsmith start          turn it on
     nightsmith stop           turn it off
     nightsmith status         is it running, and how much memory
@@ -125,7 +133,7 @@ func printHelp() {
 // Everything above the question is work, not interrogation. The tool earns the
 // right to ask by doing something first.
 
-func cmdSetup() error {
+func cmdSetup(assumeYes bool) error {
 	cat, err := LoadCatalog()
 	if err != nil {
 		return err
@@ -150,7 +158,7 @@ func cmdSetup() error {
 		// terminal; nothing else here does, which is what makes the split
 		// safe rather than clever.
 		var code exitCode
-		if isConsole(os.Stdin) && isConsole(os.Stdout) {
+		if !assumeYes && isConsole(os.Stdin) && isConsole(os.Stdout) {
 			if err := cmdChat(nil); err != nil && !errors.As(err, &code) {
 				return err
 			}
@@ -229,7 +237,17 @@ func cmdSetup() error {
 	printf("\n  Nothing here needs your password, and nothing touches the\n")
 	printf("  Python or Homebrew already on this Mac.\n\n")
 
-	if !confirm("  Set it up?", true) {
+	switch {
+	case assumeYes:
+		printf("  Setting it up, without asking, because you said --yes.\n")
+	case !isConsole(os.Stdin):
+		// There is nothing to read an answer from. Saying "nothing was
+		// installed" and exiting 0 — which is what happened — is
+		// indistinguishable from success to whatever ran this.
+		return errors.New("there's no terminal here to ask, so nothing was installed.\n" +
+			"    Run 'nightsmith --yes' to set it up without being asked.")
+	case !confirm("  Set it up?", true):
+		// A person declining is an answer, not a failure.
 		fmt.Println("\n  Nothing was installed.")
 		return nil
 	}
@@ -398,8 +416,8 @@ func cmdStop() error {
 	if cfg, err := LoadConfig(); err == nil {
 		if _, ok := ServerPID(); ok {
 			if n := InFlight(cfg.Port); n > 0 {
-				printf("\n  Finishing %d request%s in progress (up to %d s)…\n",
-					n, plural(n), drainSeconds)
+				printf("\n  Finishing %d request%s in progress (up to %s)…\n",
+					n, plural(n), humanDuration(RunningDrainWindow().Seconds()))
 			}
 		}
 	}
@@ -477,8 +495,23 @@ func cmdStatus(asJSON bool) error {
 	pid, ok := ServerPID()
 	if !ok {
 		r := newStatusReport(cfg, 0, nil, 0)
+		// It may have stopped on its own rather than been stopped. Saying
+		// "not running" to someone whose server died mid-job is true and
+		// useless; the log knows why.
+		why := StoppedOnItsOwn()
+		if why != "" {
+			r.Error = why
+		}
 		if asJSON {
 			printJSON(r)
+		} else if why != "" {
+			printf("\n  ⚠  It stopped on its own: %s\n\n", why)
+			printf("     A very large prompt, or too many at once, is what does\n")
+			printf("     this. Both are capped now — over %s tokens, or more\n",
+				humanCount(maxPromptTokens))
+			printf("     than %d at a time, are refused rather than fatal.\n\n",
+				maxConcurrentRequests)
+			printf("    nightsmith start    turn it back on\n\n")
 		} else {
 			printf("\n  Set up, but not running.\n\n    nightsmith start    turn it on\n\n")
 		}
@@ -586,9 +619,17 @@ func cmdModelList() error {
 		printf("%s  %-40s %9s   %s\n", marker, m.Repo, humanBytes(m.TotalBytes()), note)
 	}
 	printf("\n  Sizes are shown because the names give no warning: every row\n")
-	printf("  above says -4bit or -8bit, and they span %s to %s.\n\n",
+	printf("  above says -4bit or -8bit, and they span %s to %s.\n",
 		humanBytes(cat.Ordered()[0].TotalBytes()),
 		humanBytes(cat.Ordered()[len(cat.Ordered())-1].TotalBytes()))
+	// Measured in one language. A small language does not degrade, it
+	// invents: asked to explain tides in Lithuanian, the 12B model produced
+	// fluent-looking text containing words that do not exist, and rendered
+	// "meeting" as "consent". Nothing in the output says so, which is why
+	// this line does.
+	printf("\n  Everything above was measured in English. A model this size can\n")
+	printf("  write fluent-looking nonsense in a smaller language — inventing\n")
+	printf("  words, and reversing meanings — without any sign that it has.\n\n")
 	return nil
 }
 
@@ -634,6 +675,7 @@ func cmdModelUse(repo string) error {
 	if _, err := StopServer(); err != nil {
 		return err
 	}
+	previous, previousBytes := cfg.Model, modelBytesOnDisk(cfg, cfg.Model)
 	cfg.Model = m.Repo
 	if _, err := ensureModel(m, cfg); err != nil {
 		return err
@@ -649,8 +691,28 @@ func cmdModelUse(repo string) error {
 	if err := WriteConfig(cfg); err != nil {
 		return err
 	}
-	printf("\n  ✓  %s answered: %q\n\n", shortRepo(repo), res.Answer)
+	printf("\n  ✓  %s answered: %q\n", shortRepo(repo), res.Answer)
+	// Switching keeps the old weights. That is deliberate — switching back
+	// takes seconds instead of a download — but gigabytes appearing on a disk
+	// with nothing said about them is how a tool loses someone's trust.
+	if previous != m.Repo && previousBytes > 0 {
+		printf("\n     %s is still on this Mac (%s), so switching back is\n",
+			shortRepo(previous), humanBytes(previousBytes))
+		printf("     quick. 'nightsmith remove' clears everything.\n")
+	}
+	fmt.Println()
 	return nil
+}
+
+// modelBytesOnDisk is what this model is taking up in nightsmith's own models
+// directory. A copy in the cache shared with Ollama and LM Studio counts as 0,
+// because it is not ours to count and never ours to offer to clear.
+func modelBytesOnDisk(c Config, repo string) int64 {
+	n, err := dirSize(repoCacheDir(ownHubDir(c), repo))
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 func cmdRemove(assumeYes bool) error {

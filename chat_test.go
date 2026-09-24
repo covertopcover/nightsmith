@@ -360,3 +360,40 @@ func TestADiskThatRefusesDoesNotEndTheConversation(t *testing.T) {
 		t.Error("…and only once")
 	}
 }
+
+// The one road into this tool that can be any size at all is a piped file.
+// Past roughly 50,000 tokens a single prompt does not answer slowly — it
+// takes the server down and leaves nothing running.
+func TestPromptsTooLargeToSendAreRefusedHere(t *testing.T) {
+	if why := TooLargeToSend("what's a spring tide?"); why != "" {
+		t.Errorf("an ordinary question was refused: %s", why)
+	}
+	// Anything the server might still answer goes to the server, which has
+	// the tokenizer and can count it properly.
+	ok := strings.Repeat("x", maxPromptTokens*4)
+	if why := TooLargeToSend(ok); why != "" {
+		t.Errorf("a prompt at the ceiling is the server's call, not this side's: %s", why)
+	}
+
+	huge := strings.Repeat("x", 80_000*4)
+	why := TooLargeToSend(huge)
+	if why == "" {
+		t.Fatal("58,000 tokens is the size that killed the server; it must be refused")
+	}
+	// It has to say how big, how big is allowed, and where the number comes
+	// from — a bare "too large" sends someone looking for a setting.
+	for _, want := range []string{"80,000", "40,000", "pieces"} {
+		if !strings.Contains(why, want) {
+			t.Errorf("the refusal never mentions %q:\n%s", want, why)
+		}
+	}
+}
+
+func TestHumanCountGroupsThousands(t *testing.T) {
+	for in, want := range map[int]string{0: "0", 999: "999", 1000: "1,000",
+		40000: "40,000", 1234567: "1,234,567"} {
+		if got := humanCount(in); got != want {
+			t.Errorf("humanCount(%d) = %s, want %s", in, got, want)
+		}
+	}
+}

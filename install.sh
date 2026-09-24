@@ -255,10 +255,28 @@ echo
 # `[ -r /dev/tty ]` is not enough: the file exists and looks readable even when
 # the process has no controlling terminal, and opening it then fails with
 # "Device not configured". Try the open itself.
+# Setting NIGHTSMITH_YES=1 asks for the whole thing without being asked
+# anything — the path a script, a CI job or an agent takes:
+#
+#   curl -fsSL https://nightsmith.sh/install | NIGHTSMITH_YES=1 sh
+#
+# It needs no terminal, because nothing is asked. Everyone else keeps the
+# ending below exactly as it was.
+if [ "${NIGHTSMITH_YES:-}" = "1" ]; then
+    if [ "$shell_lacks_bin" = "1" ]; then
+        NIGHTSMITH_PATH_STATE=full-path
+    else
+        NIGHTSMITH_PATH_STATE=""
+    fi
+    export NIGHTSMITH_PATH_STATE
+    exec "$BIN" --yes
+fi
+
 if ! { : < /dev/tty; } 2>/dev/null; then
     # No terminal to hand over (CI, a non-interactive shell). Don't start
     # something interactive that cannot be answered.
     say "No terminal attached, so setup wasn't started."
+    say "Set NIGHTSMITH_YES=1 to have it set itself up without asking."
     if [ "$shell_lacks_bin" = "1" ]; then
         # The short name will not work in a shell started before the PATH
         # edit, so give the path that works anywhere.
