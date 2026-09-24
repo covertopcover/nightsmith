@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,9 +27,18 @@ type Config struct {
 	MaxTokens        int     `toml:"max_tokens"`
 	Temperature      float64 `toml:"temperature"`
 	Thinking         bool    `toml:"thinking"`
-	ModelsDir        string  `toml:"models_dir"`
-	Port             int     `toml:"port"`
-	Offline          bool    `toml:"offline"`
+
+	// ns:"client" marks a setting nightsmith applies itself, per request,
+	// rather than passing to the server at launch. It takes effect on the
+	// next message, so it must not appear in the "stop then start to apply"
+	// warning — which would be false, and the one thing that warning cannot
+	// afford to be.
+	ChatTemperature float64 `toml:"chat_temperature" ns:"client"`
+	ChatContext     int     `toml:"chat_context_tokens" ns:"client"`
+
+	ModelsDir string `toml:"models_dir"`
+	Port      int    `toml:"port"`
+	Offline   bool   `toml:"offline"`
 }
 
 func DefaultConfig(c *Catalog, m Model) Config {
@@ -39,10 +49,51 @@ func DefaultConfig(c *Catalog, m Model) Config {
 		MaxTokens:        c.Defaults.MaxTokens,
 		Temperature:      c.Defaults.Temperature,
 		Thinking:         false,
+		ChatTemperature:  defaultChatTemperature,
+		ChatContext:      defaultChatContext,
 		ModelsDir:        modelsDir(),
 		Port:             8080,
 		Offline:          true,
 	}
+}
+
+// Settings added after this Mac was set up are absent from the file on disk,
+// where TOML leaves them zero — and chat_context_tokens = 0 would mean "no
+// budget at all", which is not what an older config was asking for. The file
+// is NOT rewritten: it is hand-edited and commented, and silently editing
+// someone's file is worse than a missing key. config check says which
+// defaults are standing in.
+const (
+	defaultChatTemperature = 0.3
+	defaultChatContext     = 8000
+)
+
+func applyDefaults(c Config) Config {
+	if c.ChatTemperature == 0 {
+		c.ChatTemperature = defaultChatTemperature
+	}
+	if c.ChatContext == 0 {
+		c.ChatContext = defaultChatContext
+	}
+	return c
+}
+
+// missingChatKeys names the settings that are not in the file, so the user is
+// told which defaults are in force rather than left to guess.
+func missingChatKeys(b []byte) []string {
+	var w []string
+	for _, k := range []struct {
+		name string
+		val  any
+	}{
+		{"chat_temperature", defaultChatTemperature},
+		{"chat_context_tokens", defaultChatContext},
+	} {
+		if !bytes.Contains(b, []byte(k.name)) {
+			w = append(w, fmt.Sprintf("%s isn't in your config.toml — using %v.", k.name, k.val))
+		}
+	}
+	return w
 }
 
 func LoadConfig() (Config, error) {
@@ -59,7 +110,7 @@ func readConfigFile(path string) (Config, []string, error) {
 	if err != nil {
 		return c, nil, fmt.Errorf("%s is not readable as TOML: %w", path, err)
 	}
-	return c, unknown, nil
+	return applyDefaults(c), unknown, nil
 }
 
 // parseConfig also returns the keys that are not settings. The file is edited
@@ -90,6 +141,9 @@ func changedSettings(running, now Config) []string {
 	var out []string
 	a, b := reflect.ValueOf(running), reflect.ValueOf(now)
 	for i := 0; i < a.NumField(); i++ {
+		if a.Type().Field(i).Tag.Get("ns") == "client" {
+			continue // applies to the next message; nothing to restart for
+		}
 		x, y := a.Field(i).Interface(), b.Field(i).Interface()
 		if x != y {
 			name := a.Type().Field(i).Tag.Get("toml")
@@ -109,6 +163,9 @@ func ConfigWarnings(running bool) []string {
 	}
 	for _, k := range unknown {
 		w = append(w, fmt.Sprintf("%s is not a setting — it is being ignored.", k))
+	}
+	if b, err := os.ReadFile(configPath()); err == nil {
+		w = append(w, missingChatKeys(b)...)
 	}
 	if running {
 		if was, _, err := readConfigFile(runningConfigPath()); err == nil {
@@ -188,6 +245,29 @@ thinking = %v
   # that for you — see 'nightsmith model list'. Some models
   # cannot turn it off at all.
 
+# ── Talking to it ────────────────────────────────────────────
+chat_temperature = %v
+  # temperature above is 0, and 0 is right for the workload it
+  # was chosen for: the same question gives the same answer
+  # every time. A conversation is the other case — at 0,
+  # rephrasing a question gets you the same wrong answer worded
+  # the same way.
+  #
+  # 0.3 is a starting point, NOT a measured optimum: nothing
+  # here has compared them. Set it to 0 to make chat
+  # reproducible too.
+
+chat_context_tokens = %d
+  # Roughly how much of a conversation is re-read each turn
+  # before the oldest exchanges are dropped.
+  #
+  # Estimated from characters, not counted with the model's
+  # tokenizer — a budget, not a measurement. Larger keeps more
+  # and makes every turn slower to start. Dropping anything
+  # costs more than it sounds: the prompt no longer starts with
+  # what the cache already holds, so the rest is read again
+  # from cold.
+
 # ── Location ─────────────────────────────────────────────────
 models_dir = %q
 port = %d
@@ -197,5 +277,6 @@ offline = %v
   # background task stalling on the network, and stops weights
   # changing under you between runs.
 `, c.Model, c.PromptCacheMB, c.PromptCacheSlots, c.MaxTokens,
-		c.Temperature, c.Thinking, c.ModelsDir, c.Port, c.Offline)
+		c.Temperature, c.Thinking, c.ChatTemperature, c.ChatContext,
+		c.ModelsDir, c.Port, c.Offline)
 }

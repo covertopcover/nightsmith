@@ -23,6 +23,12 @@ func runtimeDir() string { return filepath.Join(stateDir(), "runtime") } // the 
 func uvDir() string      { return filepath.Join(stateDir(), "uv") }
 func pythonDir() string  { return filepath.Join(stateDir(), "python") } // uv's own Python
 func uvCacheDir() string { return filepath.Join(stateDir(), "uv-cache") }
+// Conversations live apart from the rest of state, and tighter: 0700 on the
+// directory, 0600 on the files. Everything else in ~/.nightsmith is settings
+// and caches at 0755/0644, which is the wrong default for a transcript of
+// what someone said in private.
+func chatsDir() string { return filepath.Join(stateDir(), "chats") }
+
 func configPath() string { return filepath.Join(stateDir(), "config.toml") }
 func pidPath() string    { return filepath.Join(stateDir(), "server.pid") }
 func binPath() string    { return filepath.Join(homeDir(), ".local", "bin", "nightsmith") }

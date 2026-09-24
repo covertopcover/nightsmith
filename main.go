@@ -12,7 +12,9 @@ import (
 
 // The command surface:
 //
-//	nightsmith                 set up, or report that setup is done
+//	nightsmith                 set up · talk to it · or report setup is done
+//	nightsmith -p "…"          one question, one answer — for scripts
+//	nightsmith -c | -r [ID]    pick a past conversation back up
 //	nightsmith start|stop      the server
 //	nightsmith status [--json] proved by a real completion, never a ping
 //	nightsmith remove          take it back off this Mac  (alias: uninstall)
@@ -41,6 +43,16 @@ func run(args []string) error {
 		return cmdSetup()
 	}
 	switch args[0] {
+	case "-p", "--print":
+		return cmdAsk(args[1:])
+	case "-c", "--continue":
+		return cmdResume("")
+	case "-r", "--resume":
+		// With no id: show what there is, rather than guessing which one.
+		if len(args) > 1 {
+			return cmdResume(args[1])
+		}
+		return cmdSessions()
 	case "start":
 		return cmdStart()
 	case "stop":
@@ -81,11 +93,21 @@ func printHelp() {
 	fmt.Print(`
   nightsmith — AI that runs on your own Mac.
 
-    nightsmith                set it up, or tell you it already is
+    nightsmith                set it up — or, once it is, talk to it
+                              (with no terminal: report that setup is done)
     nightsmith start          turn it on
     nightsmith stop           turn it off
     nightsmith status         is it running, and how much memory
     nightsmith remove         take it back off this Mac
+
+    nightsmith -p "…"         ask one question, print the answer, exit.
+                              With no question, or with a lone '-', the
+                              question is read from stdin instead:
+                                cat notes.txt | nightsmith -p "sum this up" -
+                              Same exit codes as status
+
+    nightsmith -c             pick up the last conversation
+    nightsmith -r [ID]        pick up that one — or list them all
 
     nightsmith status --json  the same, for programs. Exit code, either way:
                               0 it answered · 3 not running ·
@@ -117,10 +139,24 @@ func cmdSetup() error {
 	}
 
 	if ConfigExists() {
-		// Re-running a command to check it worked is what non-developers do.
-		// It must be instant, idempotent, and must never re-download.
-		// Not running is a fine answer here, not a failure.
+		// Set up already. At a terminal that means: talk to it — the bare
+		// command is the conversation, which is what a person who just
+		// installed this wants and what every other terminal agent does.
+		//
+		// With no terminal it keeps its old meaning exactly: re-running a
+		// command to check it worked is what non-developers do, it must be
+		// instant and idempotent, and install.sh's non-interactive ending and
+		// every script depend on the exit codes. A conversation needs a
+		// terminal; nothing else here does, which is what makes the split
+		// safe rather than clever.
 		var code exitCode
+		if isConsole(os.Stdin) && isConsole(os.Stdout) {
+			if err := cmdChat(nil); err != nil && !errors.As(err, &code) {
+				return err
+			}
+			return nil
+		}
+		// Not running is a fine answer here, not a failure.
 		if err := cmdStatus(false); err != nil && !errors.As(err, &code) {
 			return err
 		}
@@ -271,6 +307,7 @@ func printReady(c Config) {
 	printf(`
   Ready. It's running now.
 
+    %[1]s           talk to it
     %[1]s start     turn it on
     %[1]s stop      turn it off
     %[1]s status    is it running, and how much memory
@@ -654,13 +691,20 @@ func loaded() (Config, *Catalog, Model, error) {
 	return cfg, cat, m, nil
 }
 
+// One reader for the whole process, never one per call. A bufio.Reader may
+// read further than the line it returns, so a second one built later starts
+// with whatever the first swallowed. With a single prompt that never showed;
+// the moment a prompt is followed by a conversation, the user's first message
+// is the thing that disappears.
+var stdin = bufio.NewReader(os.Stdin)
+
 func confirm(prompt string, defaultYes bool) bool {
 	suffix := " [y/N] "
 	if defaultYes {
 		suffix = " [Y/n] "
 	}
 	fmt.Print(prompt + suffix)
-	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	line, err := stdin.ReadString('\n')
 	if err != nil {
 		return false // no answer is not consent, whichever way the default points
 	}

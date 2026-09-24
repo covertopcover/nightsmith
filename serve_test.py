@@ -121,6 +121,33 @@ class ResponseFormat(unittest.TestCase):
         self.assertEqual(err.param, "response_format")
 
 
+class StreamOptions(unittest.TestCase):
+    """The pinned server indexes include_usage directly, so a stream_options
+    without it raises after the headers are sent — which reaches a client as a
+    stream that stops for no stated reason. Refused before a byte is written.
+    """
+
+    def test_bare_stream_options_is_a_400(self):
+        err = check({"messages": OK_MESSAGES, "stream": True, "stream_options": {}})
+        self.assertEqual((err.status, err.param), (400, "stream_options"))
+
+    def test_include_usage_must_be_a_bool(self):
+        err = check({"messages": OK_MESSAGES, "stream_options": {"include_usage": "yes"}})
+        self.assertEqual((err.status, err.param), (400, "stream_options"))
+
+    def test_not_an_object(self):
+        err = check({"messages": OK_MESSAGES, "stream_options": True})
+        self.assertEqual((err.status, err.param), (400, "stream_options"))
+
+    def test_what_nightsmith_sends_is_accepted(self):
+        self.assertIsNone(check({"messages": OK_MESSAGES, "stream": True,
+                                 "stream_options": {"include_usage": True}}))
+
+    def test_absent_and_null_are_fine(self):
+        self.assertIsNone(check({"messages": OK_MESSAGES, "stream": True}))
+        self.assertIsNone(check({"messages": OK_MESSAGES, "stream_options": None}))
+
+
 class Health(unittest.TestCase):
     def test_states(self):
         self.assertEqual(health_state(True, False), "loading")

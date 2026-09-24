@@ -47,6 +47,7 @@ func PlanRemoval() Removal {
 		{uvDir(), "uv, which installed that Python"},
 		{uvCacheDir(), ""}, // only present if an install was interrupted
 		{configPath(), "your settings"},
+		{chatsDir(), "your conversations"},
 		{pidPath(), ""},
 		{filepath.Join(stateDir(), "server.log"), ""},
 		{serveScriptPath(), ""},

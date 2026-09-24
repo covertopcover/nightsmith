@@ -111,6 +111,23 @@ def check_request(path, body, aliases, advertised):
             param="response_format",
         )
 
+    # stream_options reaches the pinned server as a bare dict index
+    # (`self.stream_options["include_usage"]`), so a dict without that key
+    # raises *after* the response headers are out. At that point nothing can
+    # be written back, and the client sees a stream that simply stops — the
+    # exact failure the streaming client has no way to explain. Refuse it
+    # before a byte is sent instead.
+    if "stream_options" in body and body["stream_options"] is not None:
+        so = body["stream_options"]
+        if not isinstance(so, dict) or not isinstance(so.get("include_usage"), bool):
+            return ClientError(
+                400,
+                "'stream_options' must be {\"include_usage\": true} or left "
+                "out: without that key the server fails mid-stream, after the "
+                "headers are sent, and the error cannot reach you",
+                param="stream_options",
+            )
+
     if "model" in body:
         model = body["model"]
         if not isinstance(model, str) or model == "":

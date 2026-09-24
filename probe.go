@@ -36,9 +36,20 @@ type ProbeResult struct {
 type chatRequest struct {
 	Model              string         `json:"model,omitempty"`
 	Messages           []chatMessage  `json:"messages"`
+	Stream             bool           `json:"stream,omitempty"`
+	StreamOptions      *streamOptions `json:"stream_options,omitempty"`
 	MaxTokens          int            `json:"max_tokens"`
 	Temperature        float64        `json:"temperature"`
 	ChatTemplateKwargs map[string]any `json:"chat_template_kwargs,omitempty"`
+}
+
+// streamOptions is only ever sent as {"include_usage": true}. The pinned
+// server reads include_usage with a bare dict index, so a stream_options
+// without that key raises after the headers are out — which reaches a client
+// as a stream that simply stops. A pointer, so it is omitted entirely rather
+// than sent empty.
+type streamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type chatMessage struct {
@@ -94,6 +105,26 @@ func ThinkingHonest(m Model, want bool) (ok bool, why string) {
 	return true, ""
 }
 
+// answerVerdict is the single place that decides whether a completion counts.
+// Both clients come through here — the one-shot Probe below and the streaming
+// one in stream.go — so the post-OOM zombie and the answer spent entirely on
+// reasoning cannot be reported two different ways. A second implementation of
+// this judgement is how one of them would quietly start calling a failure a
+// success.
+func answerVerdict(content, reasoning string) error {
+	if strings.TrimSpace(content) != "" {
+		return nil
+	}
+	if strings.TrimSpace(reasoning) != "" {
+		// The whole budget went on reasoning. Say that, because "empty" would
+		// send the user looking for an out-of-memory problem that isn't there.
+		return fmt.Errorf("the model spent its whole answer thinking and never replied")
+	}
+	// This is the post-OOM zombie, and a health check would have called it
+	// healthy. An empty answer is a failure.
+	return fmt.Errorf("the model server replied, but the answer was empty")
+}
+
 // Probe asks the model a real question and reads the real answer. Everything
 // the tool claims afterwards rests on this returning.
 func Probe(port int, c Config, m Model, question string) (ProbeResult, error) {
@@ -137,16 +168,12 @@ func Probe(port int, c Config, m Model, question string) (ProbeResult, error) {
 	if err := json.Unmarshal(raw, &cr); err != nil {
 		return r, fmt.Errorf("the model server's reply wasn't valid JSON: %w", err)
 	}
-	if len(cr.Choices) > 0 && strings.TrimSpace(cr.Choices[0].Message.Content) == "" &&
-		strings.TrimSpace(cr.Choices[0].Message.Reasoning) != "" {
-		// The whole budget went on reasoning. Say that, because "empty" would
-		// send the user looking for an out-of-memory problem that isn't there.
-		return r, fmt.Errorf("the model spent its whole answer thinking and never replied")
+	var content, reasoning string
+	if len(cr.Choices) > 0 {
+		content, reasoning = cr.Choices[0].Message.Content, cr.Choices[0].Message.Reasoning
 	}
-	if len(cr.Choices) == 0 || strings.TrimSpace(cr.Choices[0].Message.Content) == "" {
-		// This is the post-OOM zombie, and a health check would have called it
-		// healthy. An empty answer is a failure.
-		return r, fmt.Errorf("the model server replied, but the answer was empty")
+	if err := answerVerdict(content, reasoning); err != nil {
+		return r, err
 	}
 
 	r.Answer = strings.TrimSpace(cr.Choices[0].Message.Content)
