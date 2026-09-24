@@ -107,3 +107,47 @@ func TestRemovalIncludesTheRunningConfigSnapshot(t *testing.T) {
 	}
 	t.Error("server.toml is not in the removal plan")
 }
+
+// `remove` promises the Mac is back to how it was, and a stray file makes the
+// closing line false. It has been wrong once already: v0.1.7 added a rotated
+// server.log.1 and did not add it here, so removal left the file — and, because
+// the directory was no longer empty, the directory too.
+//
+// Every file nightsmith writes under ~/.nightsmith belongs in this list AND in
+// PlanRemoval. If you add one to the product, add it here: the test fails
+// loudly, which is the only reason it would ever be noticed.
+func TestRemoveLeavesNothingBehind(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	for _, dir := range []string{modelsDir(), runtimeDir(), pythonDir(), uvDir(),
+		uvCacheDir(), chatsDir()} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mustWrite(t, filepath.Join(dir, "something"), 1024)
+	}
+	for _, file := range []string{configPath(), pidPath(), serverLog(), previousLog(),
+		serveScriptPath(), runningConfigPath()} {
+		mustWrite(t, file, 64)
+	}
+	os.MkdirAll(filepath.Dir(binPath()), 0o755)
+	mustWrite(t, binPath(), 4096)
+
+	if _, err := PlanRemoval().Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	if entries, err := os.ReadDir(stateDir()); err == nil {
+		var left []string
+		for _, e := range entries {
+			left = append(left, e.Name())
+		}
+		t.Errorf("~/.nightsmith survived, holding %v — add each to PlanRemoval", left)
+	} else if !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(binPath()); err == nil {
+		t.Error("the command itself was left behind")
+	}
+}

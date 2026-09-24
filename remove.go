@@ -49,7 +49,8 @@ func PlanRemoval() Removal {
 		{configPath(), "your settings"},
 		{chatsDir(), "your conversations"},
 		{pidPath(), ""},
-		{filepath.Join(stateDir(), "server.log"), ""},
+		{serverLog(), ""},
+		{previousLog(), ""}, // the rotated log a crash leaves behind
 		{serveScriptPath(), ""},
 		{runningConfigPath(), ""},
 		{binPath(), "the command itself"},
