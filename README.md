@@ -148,7 +148,7 @@ Monitor, the server is named `nightsmith-model`.
 These numbers are for Gemma 4 12B (4-bit) on `mlx_lm.server`. Setup measures
 your Mac and reports its own numbers. It does not quote these.
 
-| | |
+| What | Measured |
 |---|---|
 | Writing | ~12 tokens/s (about 9 words a second), flat over a 92-minute run |
 | Reading a prompt | ~131 tokens/s cold, ~1,900 warm · ~19 s per 2,048 tokens, so 40,000 tokens is six minutes before the first word |

@@ -54,6 +54,30 @@ body {
 
   strong { color: #eef2f7; }
 
+  // The theme gives a table no bottom margin, so a code block that followed
+  // one touched it.
+  table { margin-bottom: 1rem; }
+
+  // The copy button that assets/js/copy.js adds to each code block. Dim until
+  // the block is hovered, and always visible where there is no hover.
+  div.highlighter-rouge { position: relative; }
+  .copy {
+    position: absolute;
+    top: 0.45rem;
+    right: 0.45rem;
+    padding: 0.3rem;
+    line-height: 0;
+    color: $body-text-color;
+    background-color: transparent;
+    border: 0;
+    cursor: pointer;
+    opacity: 0.55;
+    transition: opacity 0.15s;
+    &:hover, &:focus-visible { color: $section-headings-color; }
+  }
+  div.highlighter-rouge:hover .copy, .copy:focus-visible { opacity: 1; }
+  @media (hover: none) { .copy { opacity: 1; } }
+
   table tr { background-color: transparent; }
   table tr:nth-child(2n) { background-color: #121823; }
   table th { color: #eef2f7; }
