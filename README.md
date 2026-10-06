@@ -1,78 +1,114 @@
 # nightsmith
 
-Local AI on your own Mac, set up with one terminal command.
+Local AI that runs in the background on your own Mac, set up with one terminal
+command.
 
 ```sh
 curl -fsSL https://nightsmith.sh/install | sh
 ```
 
-Nightsmith looks at your Mac, picks a model that fits, installs the runtime,
-downloads the model, and **proves it works by asking it a real question**.
-Then you talk to it — type `nightsmith` — or point any OpenAI-compatible
-client at `http://127.0.0.1:8080/v1`.
+## Use cases
 
-It installs to `~/.local/bin`, adds that to your PATH if it isn't there, and
-hands you a fresh shell at the end when it had to — there is nothing to source
-and no terminal to restart. Setup takes about five minutes and 8 GB of disk on
-a 16 GB M4.
+The model runs on your Mac, so the text that you give it stays on your Mac.
+That makes nightsmith a fit for text that you cannot paste into a cloud
+service: contracts, customer data, medical letters, private code. There is
+also no cost for each request and no rate limit.
 
-- **No password, ever.** Everything lives in `~/.nightsmith` and
-  `~/.local/bin`. No `sudo`, no Homebrew, no Xcode.
-- **It uses its own copy of Python**, not yours. A model already in
-  `~/.cache/huggingface` (shared with Ollama and LM Studio) is reused, never
-  modified, never deleted.
-- **A checkmark means it happened.** Setup is done when the model has
-  answered, not when a health check returned 200.
-- **Nothing you type leaves the machine.** No account, no telemetry, and no
-  network call once the model is downloaded.
+- Extract data. Pull names, dates and amounts out of invoices, emails or
+  contracts, and ask for the result as JSON.
+- Summarize text. Shorten meeting notes, long email threads and reports.
+- Sort and label. Tag support tickets, emails or survey answers by topic,
+  urgency or sentiment.
+- Redact. Remove names, email addresses and phone numbers from a text before
+  you share it or send it to a cloud model.
+- Ask questions about a document. Give it a contract or a policy, and ask
+  what the document says about one point.
+- Explain a hard letter. Paste a medical, legal or tax letter and ask for
+  plain words.
+- Rewrite and proofread. Correct grammar, change the tone, or make a text
+  shorter.
+- Draft replies. Write a first version of an answer to an email or a message.
+- Clean up messy text. Turn rough notes into a table, or put dates and
+  addresses into one format.
+- Read logs and errors. Ask what an error means, or summarize a log that
+  contains internal hostnames and customer IDs.
+- Work with private code. Ask it to explain a script, or to write a commit
+  message from a diff.
+- Run a batch from a script. Loop over a folder of files with
+  `nightsmith -p` and collect the answers.
 
-Apple Silicon only (M1 or newer). Intel Macs get a clear refusal rather than a
-slow fallback.
+One prompt can hold up to 40,000 tokens, which is roughly 30,000 words. The
+model does not look anything up, so do not use it as a source of facts. See
+Known limits.
+
+## What setup does
+
+Nightsmith looks at your Mac and picks a model that fits. It installs the
+runtime (the program that runs the model) and downloads the model. Then it
+asks the model a real question, to prove that the model works.
+
+To talk to the model, type `nightsmith`. You can also point any
+OpenAI-compatible client at `http://127.0.0.1:8080/v1`. The model server keeps
+running after you close the terminal.
+
+Nightsmith installs to `~/.local/bin`. If that directory is not in your PATH,
+nightsmith adds it and opens a fresh shell at the end. You do not source a
+file or restart the terminal. On a 16 GB M4, setup takes about five minutes
+and 8 GB of disk.
+
+- Nightsmith never asks for a password. Everything is in `~/.nightsmith` and
+  `~/.local/bin`. It does not use `sudo`, Homebrew or Xcode.
+- Nightsmith uses its own copy of Python, not yours. If a model is already in
+  `~/.cache/huggingface`, nightsmith reuses it. Ollama and LM Studio share
+  that directory, and nightsmith does not change or delete the models in it.
+- A checkmark means that the step happened. Setup is done when the model
+  answers a question. A health check that returns 200 is not enough.
+- Nothing that you type leaves the machine. There is no account and no
+  telemetry. After the model downloads, nightsmith makes no network calls.
+
+Nightsmith runs on Apple Silicon only (M1 or newer). On an Intel Mac,
+nightsmith refuses clearly. It does not fall back to a slow mode.
 
 ## Using it
 
-```
-  › what's a spring tide?
-
-  A spring tide is a tide cycle that occurs when the moon and sun are
-  aligned, resulting in the highest high tides and lowest low tides.
-
-  5s · about 10 words a second
-```
-
-Answers stream as they are written, which matters at nine words a second.
-**Ctrl-C** stops an answer without leaving, **Ctrl-D** leaves, and
-`/help /new /sessions /resume ID /context /paste /exit` work inside.
-Conversations are written to `~/.nightsmith/chats` as they happen.
+Type `nightsmith` to start a conversation. Nightsmith shows each answer as the model writes it. At nine words a second,
+you do not want to wait for the whole answer. Press Ctrl-C to stop an answer
+and stay in the conversation. Press Ctrl-D to leave. These commands work
+inside a conversation:
+`/help /new /sessions /resume ID /context /paste /exit`.
+Nightsmith writes each conversation to `~/.nightsmith/chats` as it happens.
 
 | Command | What it does |
 |---|---|
-| `nightsmith` | Talk to it. Before setup, set it up. With no terminal it reports status instead, with `status`'s exit codes |
-| `nightsmith -p "…"` | One question, one answer. Reads stdin when given no question, or a lone `-` |
-| `nightsmith -c` | Pick up the last conversation |
-| `nightsmith -r [ID]` | Pick up that conversation — or list them all |
+| `nightsmith` | Talk to the model. Before setup, this command runs setup. With no terminal, it reports status and uses the exit codes of `status` |
+| `nightsmith -p "…"` | One question, one answer. With no question, or with a lone `-`, it reads stdin |
+| `nightsmith -c` | Continue the last conversation |
+| `nightsmith -r [ID]` | Continue that conversation. With no ID, list all conversations |
 | `nightsmith start` / `nightsmith stop` | Turn the model server on and off |
-| `nightsmith status` | Ask it a real question, and show its memory use. `--json` for programs |
-| `nightsmith remove` | List everything it installed, then delete it (`uninstall` works too) |
-| `nightsmith config check` | What your settings will cost, against what this Mac can give them |
-| `nightsmith model list` | What fits on this Mac, with real sizes |
-| `nightsmith model use <repo>` | Switch model, and prove the new one answers |
-| `nightsmith --yes` | Set up without asking, for a script |
+| `nightsmith status` | Ask the model a real question and show its memory use. Add `--json` for programs |
+| `nightsmith remove` | List everything that nightsmith installed, then delete it (`uninstall` also works) |
+| `nightsmith config check` | Show what your configuration costs, against what this Mac can give |
+| `nightsmith model list` | Show the models that fit on this Mac, with real sizes |
+| `nightsmith model use <repo>` | Switch model, and prove that the new model answers |
+| `nightsmith --yes` | Set up without questions, for a script |
 
 ```sh
 nightsmith -p "what's a spring tide?"
 cat notes.txt | nightsmith -p "sum this up" -   # instruction, then material
+cat invoice.txt | nightsmith -p "list the supplier, date and total as JSON" -
+git diff | nightsmith -p "write a commit message for this diff" -
 ```
 
-Standard output is the answer and nothing else; timings and warnings go to
-standard error, and only when it is a terminal.
+Standard output contains the answer and nothing else. Timings and warnings go
+to standard error, and only when standard error is a terminal.
 
 ## For a program or an agent
 
-The server speaks the OpenAI chat-completions API, so anything that can point
-at a custom base URL can use it. **Base URL** `http://127.0.0.1:8080/v1` —
-`nightsmith status` prints the port in use if 8080 was taken. **Model id** is
-the Hub repo as `/v1/models` lists it, or leave `model` out.
+The server speaks the OpenAI chat-completions API. Any program that accepts a
+custom base URL can use it. The base URL is `http://127.0.0.1:8080/v1`. If
+port 8080 was taken, `nightsmith status` prints the port in use. The model id
+is the Hugging Face repo as `/v1/models` lists it. You can also leave `model`
+out.
 
 ```sh
 curl -fsSL https://nightsmith.sh/install | NIGHTSMITH_YES=1 sh   # unattended
@@ -80,70 +116,74 @@ nightsmith status --json    # 0 answered · 3 not running · 4 not answering
 nightsmith start            # returns only once the model has answered
 ```
 
-Five things to know before you drive it:
+Know these five things before you send requests:
 
-- **Three requests at a time.** Concurrency is batched and genuinely faster,
-  but past three it killed the server, so a fourth waits for a slot (up to two
-  minutes) and then gets a 503 with `Retry-After`. `GET /health` reports
-  `in_flight` and `queued`.
-- **A prompt over 40,000 tokens is a 400**, counted with the model's own
-  tokenizer. Past the ceiling one request takes the whole server down after
-  eight minutes of trying. A refusal takes 0.07 s.
-- **Treat a stream that ends without `[DONE]` or a `finish_reason` as a
-  failure.** It is a well-formed 200 either way — once a stream has started,
-  nothing can write an error into it. Nightsmith reads it that way too.
-- **`response_format` is refused with a 400.** Nothing here constrains output
-  to JSON or a schema, so accepting it would be a promise not kept. Ask for
-  JSON in the prompt and parse the reply; 27 of 30 varied requests parsed
-  first try.
-- **`/health` is a hint.** The only proof that a request will work is a
-  request that worked — that is how nightsmith checks itself, and why every
-  checkmark it prints costs a real completion.
+- The server runs three requests at a time. It batches concurrent requests,
+  and that is faster. More than three at once killed the server. A fourth
+  request waits up to two minutes for a slot, then gets a 503 with
+  `Retry-After`. `GET /health` reports `in_flight` and `queued`.
+- A prompt over 40,000 tokens gets a 400. A token is a piece of a word.
+  Nightsmith counts tokens with the model's own tokenizer. Above the limit,
+  one request takes down the whole server after eight minutes of trying. A
+  refusal takes 0.07 s.
+- If a stream ends without `[DONE]` or a `finish_reason`, treat it as a
+  failure. The response is a well-formed 200 in both cases, because nothing
+  can write an error into a stream after it starts. Nightsmith reads its own
+  streams the same way.
+- `response_format` gets a 400. Nothing in nightsmith constrains output to
+  JSON or a schema, so nightsmith does not make a promise that it cannot keep.
+  Ask for JSON in the prompt and parse the reply. 27 of 30 varied requests
+  parsed on the first try.
+- `/health` is a hint. The only proof that a request will work is a request
+  that worked. Nightsmith checks itself that way, so each checkmark that it
+  prints costs a real completion.
 
-Errors are the OpenAI shape on every path (`error.message`, `type`, `param`,
-`code`). `nightsmith stop` lets answers in progress finish — a whole answer's
-worth of writing, about 2.5 minutes at the defaults. In Activity Monitor the
-server is `nightsmith-model`.
+Errors use the OpenAI shape on every path (`error.message`, `type`, `param`,
+`code`). `nightsmith stop` lets answers in progress finish. That can take the
+time of one whole answer, about 2.5 minutes at the defaults. In Activity
+Monitor, the server is named `nightsmith-model`.
 
 ## Measured on a base M4 / 16 GB
 
-Gemma 4 12B (4-bit) on `mlx_lm.server`. Setup measures your Mac and reports
-its own numbers rather than quoting these.
+These numbers are for Gemma 4 12B (4-bit) on `mlx_lm.server`. Setup measures
+your Mac and reports its own numbers. It does not quote these.
 
 | | |
 |---|---|
-| Writing | ~12 tokens/s (about 9 words a second), flat over a 92-minute soak |
-| Reading a prompt | ~131 tokens/s cold, ~1,900 warm · **~19 s per 2,048 tokens**, so 40,000 tokens is six minutes before the first word |
+| Writing | ~12 tokens/s (about 9 words a second), flat over a 92-minute run |
+| Reading a prompt | ~131 tokens/s cold, ~1,900 warm · ~19 s per 2,048 tokens, so 40,000 tokens is six minutes before the first word |
 | Memory | 10.2 GB peak, 7.7 GB idle, against Metal's 12.7 GB GPU limit |
 | Endurance | 953 requests over 3 hours, zero failures, memory flat |
 | Context ceiling | 38,009 tokens answered in 349 s · 43,389 in 406 s · 62,009 fatal. Capped at 40,000 |
 | Concurrency ceiling | 3 × 8,000 tokens fine · 4 × 4,000 fatal · 5 × 2,000 fatal. Capped at 3 |
-| A conversation | Gets *faster* as it grows: 1.40 s to first word on turn 1, 0.71 s by turn 4, as the cache reuses the previous turn |
+| A conversation | Gets faster as it grows. The first word takes 1.40 s on turn 1 and 0.71 s by turn 4, because the cache reuses the previous turn |
 
-Speed is set by memory bandwidth, not RAM: the same model is about 2× faster
-on an M-series Pro and 4× on a Max.
+Memory bandwidth sets the speed, not the amount of RAM. The same model is
+about 2× faster on an M-series Pro and 4× faster on a Max.
 
-The cache has one slot, which is why `nightsmith status` mid-conversation
-costs you something: it sends a real question of its own, dropping reuse from
-157 tokens to 4 and the next first word from 0.71 s to 2.15 s.
+The cache (the saved work from the last prompt) has one slot.
+`nightsmith status` sends a real question of its own, and that question takes
+the slot. In the middle of a conversation, reuse drops from 157 tokens to 4.
+The next first word then takes 2.15 s, up from 0.71 s.
 
 ## Known limits
 
-- **No tools, no skills, no system prompt.** It cannot read your files, run
-  commands or look anything up, and it says so when asked. The model also
-  introduces itself as Gemma and does not know it is running here.
-- **Measured in English only.** A model this size can write fluent-looking
-  nonsense in a smaller language — inventing words, reversing meanings — with
-  nothing in the output to show it has.
-- **It invents academic citations**, while correctly refusing to invent APIs.
-- **At `temperature = 0` a prompt that fails fails identically for ever**, so
-  retrying cannot help. Raise the temperature for that one prompt.
-- **Scheduling, job queues and supervision are out of scope for now.** If the
-  model runs out of memory the server says so in its log and exits; `status`
-  explains it and `nightsmith start` brings it back. Nothing restarts it for
-  you.
-- Only the 16 GB rung has been measured. Every other size in `models.toml` is
-  arithmetic, and is labelled as such.
+- Nightsmith has no tools, no skills and no system prompt. The model cannot
+  read your files, run commands or look anything up, and it says so when you
+  ask. The model also introduces itself as Gemma and does not know that it
+  runs inside nightsmith.
+- Only English was measured. In a smaller language, a model this size can
+  write nonsense that looks fluent. It invents words and reverses meanings,
+  and nothing in the output shows that.
+- The model invents academic citations. It correctly refuses to invent APIs.
+- At `temperature = 0`, a prompt that fails will fail the same way every time,
+  so a retry cannot help. Raise the temperature for that one prompt.
+- Scheduling, job queues and supervision are out of scope for now. If the
+  model runs out of memory, the server writes that to its log and exits.
+  `nightsmith status` explains it, and `nightsmith start` brings the server
+  back. Nothing restarts the server for you.
+- Only the 16 GB size was measured. Every other size in `models.toml` is
+  arithmetic, and is labeled as arithmetic.
 
 ## Building
 
